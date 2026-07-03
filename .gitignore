@@ -10,10 +10,14 @@
 # ========================================
 # 編輯器與作業系統 (Editor & OS)
 # ========================================
-.vscode/
+.vscode/*
 .idea/
 .DS_Store
 Thumbs.db
+
+# 用驚嘆號「特別允許」專案共用的設定檔進入 Git
+!.vscode/extensions.json
+!.vscode/settings.json
 
 # ========================================
 # 後端：Go (Backend)
