@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	// 💡 新增 os 套件
-	"github.com/gin-gonic/gin" // 💡 新增 godotenv 套件
+	// 新增 os 套件
+	"github.com/gin-gonic/gin" // 新增 godotenv 套件
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -20,7 +20,7 @@ type KlineResponse struct {
 	High  float64 `json:"high"`
 	Low   float64 `json:"low"`
 	Close float64 `json:"close"`
-	// 💡 新增 MACD 欄位
+	// 新增 MACD 欄位
 	Dif  float64 `json:"dif"`
 	Dea  float64 `json:"dea"`
 	Hist float64 `json:"hist"`
@@ -55,10 +55,17 @@ func main() {
 		c.Next()
 	})
 
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"message": "指數追蹤系統後端 API 正常運行中！",
+		})
+	})
+
 	v1 := r.Group("/api/v1")
 	{
 		v1.GET("/klines", func(c *gin.Context) {
-			// 💡 實務小常識：EMA 需要一定的「熱身期（Warm-up）」計算才會精準。
+			// 實務小常識：EMA 需要一定的「熱身期（Warm-up）」計算才會精準。
 			// 雖然前端可能只想看 100 根，但我們從資料庫撈出 200 根來計算，算完再切給前端。
 			query := `SELECT time, open_price, high_price, low_price, close_price 
 					  FROM klines 
@@ -87,7 +94,7 @@ func main() {
 				closePrices = append(closePrices, k.Close)
 			}
 
-			// 💡 核心：呼叫我們寫好的純 Go MACD 計算器
+			// 核心：呼叫我們寫好的純 Go MACD 計算器
 			dif, dea, hist := calculateMACD(closePrices)
 
 			// 將算好的指標數據塞回原本的 klines 陣列中
@@ -106,7 +113,13 @@ func main() {
 		})
 	}
 
-	r.Run(":8080")
+	// 修正：動態讀取雲端環境分配的 PORT
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // 本地測試時若找不到環境變數，預設走 8080
+	}
+
+	r.Run(":" + port)
 }
 
 // =========================================================================
