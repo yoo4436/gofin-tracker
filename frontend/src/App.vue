@@ -86,8 +86,8 @@ onMounted(async () => {
   });
 
   // 使用 5.x 全新語法建立快線(DIF)、慢線(DEA)與柱狀圖(HIST)
-  const difSeries = macdChart.addSeries(LineSeries, { color: '#2196F3', lineWidth: 1.5 }); // 經典藍線
-  const deaSeries = macdChart.addSeries(LineSeries, { color: '#FF9800', lineWidth: 1.5 }); // 經典橘線
+  const difSeries = macdChart.addSeries(LineSeries, { color: '#2196F3', lineWidth: 2 }); // 經典藍線
+  const deaSeries = macdChart.addSeries(LineSeries, { color: '#FF9800', lineWidth: 2 }); // 經典橘線
   const histSeries = macdChart.addSeries(HistogramSeries, { base: 0 });                   // 能量柱狀圖
 
   // ---------------------------------------------------
@@ -96,14 +96,14 @@ onMounted(async () => {
   let isSyncing = false;
   
   mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (isSyncing || !macdChart) return;
+    if (isSyncing || !macdChart || !range) return;
     isSyncing = true;
     macdChart.timeScale().setVisibleLogicalRange(range);
     isSyncing = false;
   });
 
   macdChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (isSyncing || !mainChart) return;
+    if (isSyncing || !mainChart || !range) return;
     isSyncing = true;
     mainChart.timeScale().setVisibleLogicalRange(range);
     isSyncing = false;
