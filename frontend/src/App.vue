@@ -119,7 +119,8 @@ onMounted(async () => {
   // 4. 連線 Go 後端 API 並進行資料清洗與填入
   // ---------------------------------------------------
   try {
-    const response = await fetch('http://localhost:8080/api/v1/klines');
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+    const response = await fetch(`${API_BASE_URL}/api/v1/klines`);
     if (!response.ok) throw new Error('無法取得後端 API 資料');
     const rawData: ApiResponse[] = await response.json();
 
