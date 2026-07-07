@@ -57,7 +57,7 @@ func main() {
 	// ==========================================
 	symbol := "BTCUSDT"
 	interval := "1d"
-	limit := 50 // 先抓最近 50 根測試就好
+	limit := 500 // 抓最近 500 根測試
 
 	url := fmt.Sprintf("https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d", symbol, interval, limit)
 	fmt.Printf("正在從幣安抓取資料... 網址: %s\n", url)
@@ -106,7 +106,12 @@ func main() {
 		query := `
 			INSERT INTO klines (time, exchange_symbol_id, interval, open_price, high_price, low_price, close_price, volume)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (time, exchange_symbol_id, interval) DO NOTHING;
+			ON CONFLICT (time, exchange_symbol_id, interval) 
+			DO UPDATE SET 
+			high_price = GREATEST(klines.high_price, EXCLUDED.high_price),
+			low_price = LEAST(klines.low_price, EXCLUDED.low_price),
+			close_price = EXCLUDED.close_price,
+			volume = EXCLUDED.volume;
 		`
 
 		_, err := db.Exec(query, klineTime, exchangeSymbolID, interval, openPrice, highPrice, lowPrice, closePrice, volume)
