@@ -1,25 +1,34 @@
 <template>
   <div class="container">
     <div class="header-zone">
-      <h2>BTC/USDT 歷史走勢與技術指標 (Vue 3 + TS)</h2>
-      <button class="toggle-btn" :class="{ 'btn-active': showMacd }" @click="handleToggleMacd">
-        {{ showMacd ? '📊 隱藏 MACD 指標' : '📊 顯示 MACD 指標' }}
-      </button>
+      <h2>BTC/USDT 歷史走勢與全指標儀表板</h2>
+      <div class="btn-group">
+        <button class="toggle-btn" :class="{ 'btn-active': showMa }" @click="handleToggleMa">
+          〰️ MA 均線
+        </button>
+        <button class="toggle-btn" :class="{ 'btn-active': showBb }" @click="handleToggleBb">
+          🌀 布林通道
+        </button>
+        <button class="toggle-btn" :class="{ 'btn-active': showMacd }" @click="handleToggleMacd">
+          📊 MACD 指標
+        </button>
+        <button class="toggle-btn" :class="{ 'btn-active': showRsi }" @click="handleToggleRsi">
+          📈 RSI 指標
+        </button>
+      </div>
     </div>
     
     <div ref="chartContainer" class="chart-box"></div>
-    
-    <div ref="macdContainer" class="macd-box" :style="{ display: showMacd ? 'block' : 'none' }"></div>
+    <div ref="matchContainer" class="macd-box" :style="{ display: showMacd ? 'block' : 'none' }"></div>
+    <div ref="rsiContainer" class="rsi-box" :style="{ display: showRsi ? 'block' : 'none' }"></div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue';
-// 💡 引入 5.x 所需的各類圖表組件型態
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts';
-import type { CandlestickData, LineData, HistogramData, Time, IChartApi } from 'lightweight-charts';
+import type { Time, IChartApi, ISeriesApi } from 'lightweight-charts';
 
-// 對應 Go 後端全新的資料結構
 interface ApiResponse {
   time: number;
   open: number;
@@ -29,188 +38,162 @@ interface ApiResponse {
   dif: number;
   dea: number;
   hist: number;
+  ma7: number;
+  ma25: number;
+  bbiUpper: number;
+  bbiMiddle: number;
+  bbiLower: number;
+  rsi: number;
 }
 
 const chartContainer = ref<HTMLDivElement | null>(null);
-const macdContainer = ref<HTMLDivElement | null>(null);
-const showMacd = ref(true); // 預設開啟指標
+const matchContainer = ref<HTMLDivElement | null>(null);
+const rsiContainer = ref<HTMLDivElement | null>(null);
 
-// 將圖表實體提升至全域，以便 resize 函式存取
+// 四大開關狀態
+const showMa = ref(true);
+const showBb = ref(true);
+const showMacd = ref(true);
+const showRsi = ref(true);
+
 let mainChart: IChartApi | null = null;
 let macdChart: IChartApi | null = null;
+let rsiChart: IChartApi | null = null;
 
-// 💡 處理按鈕切換開關的邏輯
+// 💡 將主圖的線條變數提升到外層，這樣按鈕函數才抓得到它們來設定隱藏
+let ma7Series: ISeriesApi<"Line"> | null = null;
+let ma25Series: ISeriesApi<"Line"> | null = null;
+let bbUpperSeries: ISeriesApi<"Line"> | null = null;
+let bbMiddleSeries: ISeriesApi<"Line"> | null = null;
+let bbLowerSeries: ISeriesApi<"Line"> | null = null;
+
+const resizeDashboard = () => {
+  if (mainChart && chartContainer.value) mainChart.resize(chartContainer.value.clientWidth, 400);
+  if (macdChart && matchContainer.value && showMacd.value) macdChart.resize(matchContainer.value.clientWidth, 120);
+  if (rsiChart && rsiContainer.value && showRsi.value) rsiChart.resize(rsiContainer.value.clientWidth, 120);
+};
+
+// 💡 透過 applyOptions({ visible: false }) 實現主圖線條的動態開關
+const handleToggleMa = () => {
+  showMa.value = !showMa.value;
+  if (ma7Series) ma7Series.applyOptions({ visible: showMa.value });
+  if (ma25Series) ma25Series.applyOptions({ visible: showMa.value });
+};
+
+const handleToggleBb = () => {
+  showBb.value = !showBb.value;
+  if (bbUpperSeries) bbUpperSeries.applyOptions({ visible: showBb.value });
+  if (bbMiddleSeries) bbMiddleSeries.applyOptions({ visible: showBb.value });
+  if (bbLowerSeries) bbLowerSeries.applyOptions({ visible: showBb.value });
+};
+
 const handleToggleMacd = async () => {
   showMacd.value = !showMacd.value;
-  
-  // 關鍵點：必須等 Vue 的 DOM 渲染更新完（nextTick），再命令畫布重新計算寬度
   await nextTick();
-  if (mainChart && chartContainer.value) {
-    mainChart.resize(chartContainer.value.clientWidth, 400);
-  }
-  if (macdChart && macdContainer.value && showMacd.value) {
-    macdChart.resize(macdContainer.value.clientWidth, 150);
-  }
+  resizeDashboard();
+};
+
+const handleToggleRsi = async () => {
+  showRsi.value = !showRsi.value;
+  await nextTick();
+  resizeDashboard();
 };
 
 onMounted(async () => {
-  if (!chartContainer.value || !macdContainer.value) return;
+  if (!chartContainer.value || !matchContainer.value || !rsiContainer.value) return;
 
-  // ---------------------------------------------------
-  // 1. 初始化【主 K 線圖】
-  // ---------------------------------------------------
+  const commonGrid = { vertLines: { color: '#f2f2f2' }, horzLines: { color: '#f2f2f2' } };
+
+  // 1. 建立主圖
   mainChart = createChart(chartContainer.value, {
     width: chartContainer.value.clientWidth,
     height: 400,
     layout: { background: { color: '#ffffff' }, textColor: '#333333' },
-    grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
-    // 💡 密技：隱藏主圖的時間軸，交給最下方的 MACD 顯示，畫面才不會有重複的日期，變得很精簡乾淨
-    timeScale: { borderColor: '#cccccc', visible: false }, 
+    grid: commonGrid,
+    timeScale: { borderColor: '#cccccc', visible: false },
   });
 
   const candlestickSeries = mainChart.addSeries(CandlestickSeries, {
-    upColor: '#26a69a', downColor: '#ef5350',
-    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+    upColor: '#26a69a', downColor: '#ef5350', borderUpColor: '#26a69a', borderDownColor: '#ef5350', wickUpColor: '#26a69a', wickDownColor: '#ef5350',
   });
 
-  // ---------------------------------------------------
-  // 2. 初始化【MACD 子指標圖】
-  // ---------------------------------------------------
-  macdChart = createChart(macdContainer.value, {
-    width: macdContainer.value.clientWidth,
-    height: 150, // 指標圖稍微矮一點
-    layout: { background: { color: '#ffffff' }, textColor: '#333333' },
-    grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
-    timeScale: { borderColor: '#cccccc', timeVisible: true }, // 由最底部的圖表負責秀時間軸
-  });
+  // 綁定到外層變數
+  ma7Series = mainChart.addSeries(LineSeries, { color: '#ba55d3', lineWidth: 1 });
+  ma25Series = mainChart.addSeries(LineSeries, { color: '#4169e1', lineWidth: 1 });
+  bbUpperSeries = mainChart.addSeries(LineSeries, { color: '#9e9e9e', lineWidth: 1, lineStyle: 2 });
+  bbMiddleSeries = mainChart.addSeries(LineSeries, { color: '#ffb300', lineWidth: 1, lineStyle: 2 });
+  bbLowerSeries = mainChart.addSeries(LineSeries, { color: '#9e9e9e', lineWidth: 1, lineStyle: 2 });
 
-  // 使用 5.x 全新語法建立快線(DIF)、慢線(DEA)與柱狀圖(HIST)
-  const difSeries = macdChart.addSeries(LineSeries, { color: '#2196F3', lineWidth: 2 }); // 經典藍線
-  const deaSeries = macdChart.addSeries(LineSeries, { color: '#FF9800', lineWidth: 2 }); // 經典橘線
-  const histSeries = macdChart.addSeries(HistogramSeries, { base: 0 });                   // 能量柱狀圖
+  // 2. 建立 MACD
+  macdChart = createChart(matchContainer.value, { width: matchContainer.value.clientWidth, height: 120, layout: { background: { color: '#ffffff' }, textColor: '#333333' }, grid: commonGrid, timeScale: { borderColor: '#cccccc', visible: false } });
+  const difSeries = macdChart.addSeries(LineSeries, { color: '#2196F3', lineWidth: 2 });
+  const deaSeries = macdChart.addSeries(LineSeries, { color: '#FF9800', lineWidth: 2 });
+  const histSeries = macdChart.addSeries(HistogramSeries, { base: 0 });
 
-  // ---------------------------------------------------
-  // 3. 核心大絕招：互相同步兩張畫布的左右拖拽與縮放
-  // ---------------------------------------------------
+  // 3. 建立 RSI
+  rsiChart = createChart(rsiContainer.value, { width: rsiContainer.value.clientWidth, height: 120, layout: { background: { color: '#ffffff' }, textColor: '#333333' }, grid: commonGrid, timeScale: { borderColor: '#cccccc', timeVisible: true } });
+  const rsiSeries = rsiChart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 2 });
+  const rsi30Series = rsiChart.addSeries(LineSeries, { color: '#b0bec5', lineWidth: 1, lineStyle: 3 });
+  const rsi70Series = rsiChart.addSeries(LineSeries, { color: '#b0bec5', lineWidth: 1, lineStyle: 3 });
+
+  // 4. 同步縮放
   let isSyncing = false;
-  
-  mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (isSyncing || !macdChart || !range) return;
+  const syncRange = (range: any, targetCharts: (IChartApi | null)[]) => {
+    if (isSyncing || !range) return;
     isSyncing = true;
-    macdChart.timeScale().setVisibleLogicalRange(range);
+    targetCharts.forEach(chart => { if (chart) chart.timeScale().setVisibleLogicalRange(range); });
     isSyncing = false;
-  });
+  };
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => syncRange(range, [macdChart, rsiChart]));
+  macdChart.timeScale().subscribeVisibleLogicalRangeChange((range) => syncRange(range, [mainChart, rsiChart]));
+  rsiChart.timeScale().subscribeVisibleLogicalRangeChange((range) => syncRange(range, [mainChart, macdChart]));
+  window.addEventListener('resize', resizeDashboard);
 
-  macdChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (isSyncing || !mainChart || !range) return;
-    isSyncing = true;
-    mainChart.timeScale().setVisibleLogicalRange(range);
-    isSyncing = false;
-  });
-
-  // 監聽 RWD 瀏覽器視窗縮放
-  window.addEventListener('resize', () => {
-    if (chartContainer.value && mainChart) mainChart.resize(chartContainer.value.clientWidth, 400);
-    if (macdContainer.value && macdChart) macdChart.resize(macdContainer.value.clientWidth, 150);
-  });
-
-  // ---------------------------------------------------
-  // 4. 連線 Go 後端 API 並進行資料清洗與填入
-  // ---------------------------------------------------
+  // 5. 抓取資料並繪圖
   try {
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await fetch(`${API_BASE_URL}/api/v1/klines`);
-    if (!response.ok) throw new Error('無法取得後端 API 資料');
+    if (!response.ok) throw new Error('API 失敗');
     const rawData: ApiResponse[] = await response.json();
+    const times = rawData.map(item => item.time as Time);
 
-    // 格式化主 K 線
-    const klineData: CandlestickData[] = rawData.map(item => ({
-      time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close
-    }));
-
-    // 格式化 MACD 快慢線
-    const difData: LineData[] = rawData.map(item => ({ time: item.time as Time, value: item.dif }));
-    const deaData: LineData[] = rawData.map(item => ({ time: item.time as Time, value: item.dea }));
+    candlestickSeries.setData(rawData.map(item => ({ time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close })));
     
-    // 💡 格式化 MACD 柱狀圖：根據正負值動態給予紅綠顏色
-    const histData: HistogramData[] = rawData.map(item => ({
-      time: item.time as Time,
-      value: item.hist,
-      color: item.hist >= 0 ? '#26a69a' : '#ef5350' // 零軸以上綠色，零軸以下紅色
-    }));
+    ma7Series.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma7 })));
+    ma25Series.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma25 })));
+    bbUpperSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiUpper })));
+    bbMiddleSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiMiddle })));
+    bbLowerSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiLower })));
+    
+    difSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dif })));
+    deaSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dea })));
+    histSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.hist, color: item.hist >= 0 ? '#26a69a' : '#ef5350' })));
+    
+    rsiSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.rsi })));
+    rsi30Series.setData(rawData.map((_, i) => ({ time: times[i], value: 30 })));
+    rsi70Series.setData(rawData.map((_, i) => ({ time: times[i], value: 70 })));
 
-    // 將資料分別餵入各自的 Series
-    candlestickSeries.setData(klineData);
-    difSeries.setData(difData);
-    deaSeries.setData(deaData);
-    histSeries.setData(histData);
-
-    // 撐滿圖表內容，並做第一次強制同步
     mainChart.timeScale().fitContent();
     const logicalRange = mainChart.timeScale().getVisibleLogicalRange();
-    if (logicalRange) macdChart.timeScale().setVisibleLogicalRange(logicalRange);
-
+    if (logicalRange) {
+      if (macdChart) macdChart.timeScale().setVisibleLogicalRange(logicalRange);
+      if (rsiChart) rsiChart.timeScale().setVisibleLogicalRange(logicalRange);
+    }
   } catch (error) {
-    console.error('資料流對接失敗:', error);
+    console.error('抓取失敗:', error);
   }
 });
 </script>
 
 <style scoped>
-.container {
-  padding: 20px;
-  background-color: #f8f9fa;
-  font-family: Arial, sans-serif;
-}
-.header-zone {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-h2 {
-  color: #333;
-  margin: 0;
-}
-/* 💡 TradingView 風格的高質感按鈕 */
-.toggle-btn {
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: bold;
-  background-color: #ffffff;
-  color: #333333;
-  border: 1px solid #cccccc;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.toggle-btn:hover {
-  background-color: #f5f5f5;
-  border-color: #a0a0a0;
-}
-.btn-active {
-  background-color: #e3f2fd;
-  color: #2196f3;
-  border-color: #2196f3;
-}
-.chart-box {
-  width: 100%;
-  height: 400px;
-  background-color: white;
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-  border-bottom: 1px solid #f0f0f0;
-}
-.macd-box {
-  width: 100%;
-  height: 150px;
-  background-color: white;
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-}
+/* 樣式保持原樣即可 */
+.container { padding: 20px; background-color: #f8f9fa; font-family: Arial, sans-serif; }
+.header-zone { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+.btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+.toggle-btn { padding: 8px 16px; font-size: 14px; font-weight: bold; background-color: #ffffff; color: #333333; border: 1px solid #cccccc; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
+.toggle-btn:hover { background-color: #f5f5f5; border-color: #a0a0a0; }
+.btn-active { background-color: #e3f2fd; color: #2196f3; border-color: #2196f3; }
+.chart-box { width: 100%; height: 400px; background-color: white; border-top-left-radius: 8px; border-top-right-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); overflow: hidden; border-bottom: 1px solid #f0f0f0; }
+.macd-box, .rsi-box { width: 100%; height: 120px; background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow: hidden; border-bottom: 1px solid #f0f0f0; }
+.rsi-box { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
 </style>
