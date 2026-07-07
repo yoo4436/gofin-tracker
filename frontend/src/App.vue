@@ -3,22 +3,22 @@
     <div class="header-zone">
       <h2>BTC/USDT 歷史走勢與全指標儀表板</h2>
       <div class="btn-group">
-        <button class="toggle-btn" :class="{ 'btn-active': showMa }" @click="handleToggleMa">
-          〰️ MA 均線
-        </button>
-        <button class="toggle-btn" :class="{ 'btn-active': showBb }" @click="handleToggleBb">
-          🌀 布林通道
-        </button>
-        <button class="toggle-btn" :class="{ 'btn-active': showMacd }" @click="handleToggleMacd">
-          📊 MACD 指標
-        </button>
-        <button class="toggle-btn" :class="{ 'btn-active': showRsi }" @click="handleToggleRsi">
-          📈 RSI 指標
-        </button>
+        <button class="toggle-btn" :class="{ 'btn-active': showMa }" @click="handleToggleMa">〰️ MA 均線</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showBb }" @click="handleToggleBb">🌀 布林通道</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showMacd }" @click="handleToggleMacd">📊 MACD 指標</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showRsi }" @click="handleToggleRsi">📈 RSI 指標</button>
       </div>
     </div>
-    
-    <div ref="chartContainer" class="chart-box"></div>
+
+    <div ref="chartContainer" class="chart-box">
+      <div class="chart-legend">
+        <span class="legend-title">BTC/USDT 1D</span>
+        <span v-if="showMa" class="legend-item ma7">MA(7)</span>
+        <span v-if="showMa" class="legend-item ma25">MA(25)</span>
+        <span v-if="showBb" class="legend-item bb">BB(20, 2)</span>
+      </div>
+    </div>
+
     <div ref="matchContainer" class="macd-box" :style="{ display: showMacd ? 'block' : 'none' }"></div>
     <div ref="rsiContainer" class="rsi-box" :style="{ display: showRsi ? 'block' : 'none' }"></div>
   </div>
@@ -158,17 +158,17 @@ onMounted(async () => {
     const times = rawData.map(item => item.time as Time);
 
     candlestickSeries.setData(rawData.map(item => ({ time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close })));
-    
+
     ma7Series.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma7 })));
     ma25Series.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma25 })));
     bbUpperSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiUpper })));
     bbMiddleSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiMiddle })));
     bbLowerSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiLower })));
-    
+
     difSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dif })));
     deaSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dea })));
     histSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.hist, color: item.hist >= 0 ? '#26a69a' : '#ef5350' })));
-    
+
     rsiSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.rsi })));
     rsi30Series.setData(rawData.map((_, i) => ({ time: times[i], value: 30 })));
     rsi70Series.setData(rawData.map((_, i) => ({ time: times[i], value: 70 })));
@@ -187,13 +187,116 @@ onMounted(async () => {
 
 <style scoped>
 /* 樣式保持原樣即可 */
-.container { padding: 20px; background-color: #f8f9fa; font-family: Arial, sans-serif; }
-.header-zone { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-.btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
-.toggle-btn { padding: 8px 16px; font-size: 14px; font-weight: bold; background-color: #ffffff; color: #333333; border: 1px solid #cccccc; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
-.toggle-btn:hover { background-color: #f5f5f5; border-color: #a0a0a0; }
-.btn-active { background-color: #e3f2fd; color: #2196f3; border-color: #2196f3; }
-.chart-box { width: 100%; height: 400px; background-color: white; border-top-left-radius: 8px; border-top-right-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); overflow: hidden; border-bottom: 1px solid #f0f0f0; }
-.macd-box, .rsi-box { width: 100%; height: 120px; background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow: hidden; border-bottom: 1px solid #f0f0f0; }
-.rsi-box { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+.container {
+  padding: 20px;
+  background-color: #f8f9fa;
+  font-family: Arial, sans-serif;
+}
+
+.header-zone {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.btn-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.toggle-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: bold;
+  background-color: #ffffff;
+  color: #333333;
+  border: 1px solid #cccccc;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+  background-color: #f5f5f5;
+  border-color: #a0a0a0;
+}
+
+.btn-active {
+  background-color: #e3f2fd;
+  color: #2196f3;
+  border-color: #2196f3;
+}
+
+.chart-box {
+  position: relative;
+  /* 👈 這行是關鍵，讓內部圖例有定位基準 */
+  width: 100%;
+  height: 400px;
+  background-color: white;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* 新增圖例的樣式 */
+.chart-legend {
+  position: absolute;
+  top: 12px;
+  left: 15px;
+  z-index: 10;
+  /* 確保它浮在畫布的最上層 */
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+  /* 這個屬性超重要：讓滑鼠游標「穿透」文字，才不會擋住圖表的拖曳跟十字線！ */
+  pointer-events: none;
+}
+
+.legend-title {
+  font-weight: 700;
+  color: #131722;
+}
+
+.legend-item {
+  font-weight: 600;
+}
+
+/* 顏色與你 Go 後端 / TS 設定的顏色完全對齊 */
+.legend-item.ma7 {
+  color: #ba55d3;
+}
+
+/* 紫色 */
+.legend-item.ma25 {
+  color: #4169e1;
+}
+
+/* 藍色 */
+.legend-item.bb {
+  color: #ffb300;
+}
+
+/* 以布林中軌的黃色做代表 */
+
+.macd-box,
+.rsi-box {
+  width: 100%;
+  height: 120px;
+  background-color: white;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.rsi-box {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
 </style>
