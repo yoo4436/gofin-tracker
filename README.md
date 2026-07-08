@@ -55,13 +55,39 @@
 
 ### 1. 複製本專案
 ```bash
-git clone [https://github.com/yoo4436/gofin-tracker.git] 
-cd gofin-tracker
+git clone https://github.com/yoo4436/gofin-tracker.git && cd gofin-tracker
 ```
 
 ### 2. 環境變數設定
-```bash
-請參考專案根目錄下的 .env.example，在根目錄建立一個 .env 檔案，並填入你的 Supabase 連線字串（請換上你當初設定的正確密碼）：
+
+#### 2-1. 建立資料庫結構
+請前往你的 Supabase 或 PostgreSQL 控制台，執行以下 SQL 語法以建立所需的 Table 與複合主鍵：
+```sql
+-- 建立交易商品對照表
+CREATE TABLE exchange_symbols (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(50) NOT NULL UNIQUE,
+    exchange_name VARCHAR(50) NOT NULL
+);
+
+-- 建立 K 線價格表（內含複合主鍵以支援 UPSERT）
+CREATE TABLE klines (
+    time TIMESTAMP NOT NULL,
+    exchange_symbol_id INT REFERENCES exchange_symbols(id),
+    interval VARCHAR(10) NOT NULL,
+    open NUMERIC,
+    high NUMERIC,
+    low NUMERIC,
+    close NUMERIC,
+    volume NUMERIC,
+    PRIMARY KEY (time, exchange_symbol_id, interval)
+);
+```
+
+#### 2-2. 設定環境變數
+請參考專案根目錄下的 .env.example，在根目錄建立一個 .env 檔案，並填入你的 Supabase 連線字串：
+
+```env
 DATABASE_URL="postgresql://postgres.[YOUR_PROJECT_ID]:[YOUR_PASSWORD]@aws-0-xxx.pooler.supabase.com:6543/postgres"
 ```
 
@@ -76,7 +102,7 @@ go run backend/cmd/api/main.go
 ```
 
 若需要手動執行資料抓取器更新最新 K 線數據，可另外開啟終端機執行：
-```bash
+```
 go run backend/cmd/collector/main.go
 ```
 
