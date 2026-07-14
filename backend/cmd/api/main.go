@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt" // 新增：用於格式化字串拼接 SQL
 	"log"
 	"math"
 	"net/http"
@@ -12,6 +13,15 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
+
+// SymbolResponse 定義商品清單的回傳格式
+type SymbolResponse struct {
+	ID           int    `json:"id"`
+	SymbolCode   string `json:"symbol_code"`
+	Name         string `json:"name"`
+	MarketType   string `json:"market_type"`
+	ExchangeName string `json:"exchange_name"` // 這是 JOIN 拿到的交易所名稱
+}
 
 // 升級回應結構體：包進所有全新指標
 type KlineResponse struct {
@@ -70,8 +80,76 @@ func main() {
 
 	v1 := r.Group("/api/v1")
 	{
+		// 獲取商品清單與動態搜尋 API
+		v1.GET("/symbols", func(c *gin.Context) {
+			marketType := c.Query("market_type")
+			searchQuery := c.Query("q") // 接收前端傳來名叫 'q' 的搜尋字串
+
+			// 修改 SQL 查詢：加入 COALESCE 防止 NULL 炸掉程式
+			baseQuery := `
+				SELECT 
+					s.id, 
+					s.symbol_code, 
+					COALESCE(s.name, '') AS name, 
+					COALESCE(s.market_type, '') AS market_type, 
+					e.name AS exchange_name 
+				FROM symbol s
+				INNER JOIN exchange_symbol es ON s.id = es.symbol_id
+				INNER JOIN exchange e ON es.exchange_id = e.id
+			`
+
+			// 用來存放要帶入 SQL 的動態參數 (防止 SQL Injection)
+			var args []interface{}
+			paramIndex := 1
+
+			// 判斷是否需要過濾市場類型
+			if marketType != "" {
+				baseQuery += fmt.Sprintf(` AND s.market_type = $%d`, paramIndex)
+				args = append(args, marketType)
+				paramIndex++
+			}
+
+			// 判斷是否有搜尋關鍵字 (使用 ILIKE 達成不分大小寫的模糊搜尋)
+			if searchQuery != "" {
+				baseQuery += fmt.Sprintf(` AND (s.symbol_code ILIKE $%d OR s.name ILIKE $%d)`, paramIndex, paramIndex)
+				// 例如搜尋 "btc"，就會變成找包含 btc 的代碼或中文名稱
+				searchTerm := "%" + searchQuery + "%"
+				args = append(args, searchTerm)
+			}
+
+			baseQuery += ` ORDER BY s.id ASC;`
+
+			// 執行查詢，將 args 展開帶入
+			rows, err := db.Query(baseQuery, args...)
+			if err != nil {
+				log.Println("資料庫查詢失敗:", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "查詢商品清單失敗"})
+				return
+			}
+			defer rows.Close()
+
+			var symbols []SymbolResponse
+			for rows.Next() {
+				var s SymbolResponse
+				// 把錯誤印出來：這樣萬一還是錯，我們看終端機就知道兇手是哪個欄位！
+				if err := rows.Scan(&s.ID, &s.SymbolCode, &s.Name, &s.MarketType, &s.ExchangeName); err != nil {
+					log.Println("⚠️ 資料解析錯誤 (請檢查欄位名稱或型別):", err)
+					continue
+				}
+				symbols = append(symbols, s)
+			}
+
+			// 確保如果沒有資料時，回傳的是 [] 而不是 null，避免前端炸掉
+			if symbols == nil {
+				symbols = []SymbolResponse{}
+			}
+
+			c.JSON(http.StatusOK, symbols)
+		})
+
+		// 獲取 K 線與技術指標 API
 		v1.GET("/klines", func(c *gin.Context) {
-			// 💡 EMA/RSI 需要熱身期，這次撈 200 根算完再切 100 根給前端
+			// EMA/RSI 需要熱身期，這次撈 200 根算完再切 100 根給前端
 			query := `SELECT time, open_price, high_price, low_price, close_price 
 					  FROM klines 
 					  WHERE exchange_symbol_id = 1 AND interval = '1d'
@@ -104,7 +182,7 @@ func main() {
 				return
 			}
 
-			// 🧮 記憶體一擊流：一次算好所有技術指標
+			// 記憶體一擊流：一次算好所有技術指標
 			dif, dea, hist := calculateMACD(closePrices)
 			ma7 := calculateSMA(closePrices, 7)
 			ma25 := calculateSMA(closePrices, 25)
@@ -143,7 +221,7 @@ func main() {
 }
 
 // =========================================================================
-// 🧮 技術指標核心演算法 (純 Go 實作)
+// 技術指標核心演算法 (純 Go 實作)
 // =========================================================================
 
 // 1. 計算簡單移動平均線 (SMA)
