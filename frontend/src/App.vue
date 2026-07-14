@@ -1,7 +1,10 @@
 <template>
   <div class="container">
     <div class="header-zone">
-      <h2>BTC/USDT 歷史走勢與全指標儀表板</h2>
+      <div class="header-left" style="display: flex; align-items: center; gap: 20px;">
+        <h2>走勢與全指標儀表板</h2>
+        <SymbolSearch @select="handleSymbolChange" />
+      </div>
       <div class="btn-group">
         <button class="toggle-btn" :class="{ 'btn-active': showMa }" @click="handleToggleMa">〰️ MA 均線</button>
         <button class="toggle-btn" :class="{ 'btn-active': showBb }" @click="handleToggleBb">🌀 布林通道</button>
@@ -28,6 +31,7 @@
 import { ref, onMounted, nextTick } from 'vue';
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts';
 import type { Time, IChartApi, ISeriesApi } from 'lightweight-charts';
+import SymbolSearch from './components/SymbolSearch.vue';
 
 interface ApiResponse {
   time: number;
@@ -55,6 +59,12 @@ const showMa = ref(true);
 const showBb = ref(true);
 const showMacd = ref(true);
 const showRsi = ref(true);
+
+
+const handleSymbolChange = (selectedSymbol: any) => {
+  console.log("前端成功接收到選擇的商品：", selectedSymbol);
+  alert(`你選擇了：${selectedSymbol.name} (${selectedSymbol.symbol_code})`);
+}; 
 
 let mainChart: IChartApi | null = null;
 let macdChart: IChartApi | null = null;
@@ -151,6 +161,7 @@ onMounted(async () => {
 
   // 5. 抓取資料並繪圖
   try {
+    
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await fetch(`${API_BASE_URL}/api/v1/klines`);
     if (!response.ok) throw new Error('API 失敗');
