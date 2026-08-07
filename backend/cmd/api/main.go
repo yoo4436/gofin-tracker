@@ -45,6 +45,16 @@ type KlineResponse struct {
 	Rsi float64 `json:"rsi"`
 }
 
+type DailyReport struct {
+	ID            int       `json:"id"`
+	Title         string    `json:"title"`
+	Summary       string    `json:"summary"`
+	Content       string    `json:"content"`
+	CoverImageURL string    `json:"cover_image_url"`
+	IsPremium     bool      `json:"is_premium"`
+	PublishedAt   time.Time `json:"published_at"`
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -210,6 +220,40 @@ func main() {
 			}
 
 			c.JSON(http.StatusOK, klines)
+		})
+
+		// 取得日報列表 API
+		v1.GET("/reports", func(c *gin.Context) {
+			rows, err := db.Query("SELECT id, title, summary, cover_image_url, is_premium, published_at FROM daily_reports ORDER BY published_at DESC")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			defer rows.Close()
+
+			var reports []DailyReport
+			for rows.Next() {
+				var r DailyReport
+				if err := rows.Scan(&r.ID, &r.Title, &r.Summary, &r.CoverImageURL, &r.IsPremium, &r.PublishedAt); err != nil {
+					continue
+				}
+				reports = append(reports, r)
+			}
+			c.JSON(http.StatusOK, reports)
+		})
+
+		// 2. 取得單篇日報內文 API
+		v1.GET("/reports/:id", func(c *gin.Context) {
+			id := c.Param("id")
+			var r DailyReport
+			err := db.QueryRow("SELECT id, title, summary, content, cover_image_url, is_premium, published_at FROM daily_reports WHERE id = $1", id).
+				Scan(&r.ID, &r.Title, &r.Summary, &r.Content, &r.CoverImageURL, &r.IsPremium, &r.PublishedAt)
+
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "找不到該篇日報"})
+				return
+			}
+			c.JSON(http.StatusOK, r)
 		})
 	}
 
