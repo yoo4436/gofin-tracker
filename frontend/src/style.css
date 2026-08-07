@@ -23,8 +23,19 @@ html, body {
   text-align: left;
 }
 
-/* 強制修復全站標題文字（防止黑底黑字吞字） */
+/* 標題顏色由各頁面依背景決定，避免深淺色區塊互相覆蓋。 */
 h1, h2, h3, h4, h5, h6 {
-  color: #ffffff !important;
   font-weight: 600;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgba(41, 98, 255, 0.35);
+  outline-offset: 2px;
 }

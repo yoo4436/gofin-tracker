@@ -85,9 +85,9 @@ onMounted(async () => {
 
 <style scoped>
 .report-detail-container {
-  max-width: 900px;
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px clamp(12px, 3vw, 36px) 48px;
   color: #e0e3eb;
 }
 
@@ -109,11 +109,11 @@ onMounted(async () => {
 }
 
 .report-article {
-  background-color: #1e222d;
-  border-radius: 10px;
-  padding: 32px;
-  border: 1px solid #2a2e39;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(145deg, #202532 0%, #1b202b 100%);
+  border-radius: 14px;
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid #303746;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.22);
 }
 
 .report-title {
@@ -165,12 +165,37 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 12px 0 18px;
+  padding-left: 1.65rem;
+}
+
+.markdown-body :deep(li) {
+  padding-left: 0.25rem;
+}
+
+.markdown-body :deep(li + li) {
+  margin-top: 8px;
+}
+
 .markdown-body :deep(blockquote) {
-  border-left: 4px solid #2962ff;
-  background-color: rgba(41, 98, 255, 0.1);
-  padding: 12px 16px;
-  margin: 16px 0;
-  border-radius: 0 6px 6px 0;
+  width: 100%;
+  border-left: 4px solid #4f7cff;
+  background: linear-gradient(135deg, rgba(41, 98, 255, 0.16), rgba(41, 98, 255, 0.07));
+  padding: 18px clamp(18px, 3vw, 28px);
+  margin: 20px 0 24px;
+  border-radius: 0 10px 10px 0;
+  color: #e6e9f0;
+}
+
+.markdown-body :deep(blockquote > :last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(blockquote ul),
+.markdown-body :deep(blockquote ol) {
+  padding-left: 1.4rem;
 }
 
 .markdown-body :deep(a) {
@@ -186,5 +211,23 @@ onMounted(async () => {
   text-align: center;
   padding: 40px;
   font-size: 1.1rem;
+}
+
+@media (max-width: 640px) {
+  .report-detail-container {
+    padding-top: 16px;
+  }
+
+  .report-article {
+    border-radius: 10px;
+  }
+
+  .report-title {
+    font-size: 1.5rem;
+  }
+
+  .markdown-body {
+    font-size: 1rem;
+  }
 }
 </style>

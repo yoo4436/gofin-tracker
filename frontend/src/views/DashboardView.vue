@@ -1,15 +1,18 @@
 <template>
   <div class="container">
     <div class="header-zone">
-      <div class="header-left" style="display: flex; align-items: center; gap: 20px;">
-        <h2>走勢與全指標儀表板</h2>
+      <div class="header-left">
+        <div class="title-group">
+          <span class="title-kicker">MARKET OVERVIEW</span>
+          <h2>走勢與全指標儀表板</h2>
+        </div>
         <SymbolSearch @select="handleSymbolChange" />
       </div>
       <div class="btn-group">
-        <button class="toggle-btn" :class="{ 'btn-active': showMa }" @click="handleToggleMa">〰️ MA 均線</button>
-        <button class="toggle-btn" :class="{ 'btn-active': showBb }" @click="handleToggleBb">🌀 布林通道</button>
-        <button class="toggle-btn" :class="{ 'btn-active': showMacd }" @click="handleToggleMacd">📊 MACD 指標</button>
-        <button class="toggle-btn" :class="{ 'btn-active': showRsi }" @click="handleToggleRsi">📈 RSI 指標</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showMa }" :aria-pressed="showMa" @click="handleToggleMa">〰️ MA 均線</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showBb }" :aria-pressed="showBb" @click="handleToggleBb">🌀 布林通道</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showMacd }" :aria-pressed="showMacd" @click="handleToggleMacd">📊 MACD 指標</button>
+        <button class="toggle-btn" :class="{ 'btn-active': showRsi }" :aria-pressed="showRsi" @click="handleToggleRsi">📈 RSI 指標</button>
       </div>
     </div>
 
@@ -197,47 +200,80 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 樣式保持原樣即可 */
 .container {
-  padding: 20px;
-  background-color: #f8f9fa;
-  font-family: Arial, sans-serif;
+  min-height: calc(100vh - 92px);
+  padding: clamp(18px, 2vw, 28px);
+  background: linear-gradient(145deg, #f8fafc 0%, #eef3f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  color: #131722;
 }
 
 .header-zone {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+}
+
+.title-group {
+  flex: 0 0 auto;
+}
+
+.title-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: #2962ff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.title-group h2 {
+  color: #131722;
+  font-size: clamp(1.25rem, 1.6vw, 1.65rem);
+  line-height: 1.25;
 }
 
 .btn-group {
   display: flex;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .toggle-btn {
-  padding: 8px 16px;
+  padding: 9px 14px;
   font-size: 14px;
-  font-weight: bold;
+  font-weight: 700;
   background-color: #ffffff;
-  color: #333333;
-  border: 1px solid #cccccc;
-  border-radius: 6px;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .toggle-btn:hover {
-  background-color: #f5f5f5;
-  border-color: #a0a0a0;
+  color: #1d4ed8;
+  background-color: #f8fbff;
+  border-color: #93b4ff;
+  transform: translateY(-1px);
 }
 
 .btn-active {
-  background-color: #e3f2fd;
-  color: #2196f3;
-  border-color: #2196f3;
+  background-color: #eaf1ff;
+  color: #1d4ed8;
+  border-color: #2962ff;
 }
 
 .chart-box {
@@ -246,9 +282,9 @@ onMounted(async () => {
   width: 100%;
   height: 400px;
   background-color: white;
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
   overflow: hidden;
   border-bottom: 1px solid #f0f0f0;
 }
@@ -306,8 +342,36 @@ onMounted(async () => {
 }
 
 .rsi-box {
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 1100px) {
+  .header-zone,
+  .header-left {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-zone,
+  .header-left {
+    gap: 14px;
+  }
+
+  .btn-group {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .toggle-btn {
+    flex: 1 1 calc(50% - 4px);
+  }
 }
 </style>

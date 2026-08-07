@@ -38,8 +38,9 @@
 
 /* 上方導覽列滿版 */
 .navbar {
-  height: 60px;
-  background-color: #1e222d;
+  min-height: 60px;
+  background-color: rgba(30, 34, 45, 0.96);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid #2a2e39;
   display: flex;
   align-items: center;
@@ -93,6 +94,7 @@
   color: #ffffff;
   background-color: #2962ff;
   font-weight: 600;
+  box-shadow: 0 6px 16px rgba(41, 98, 255, 0.24);
 }
 
 /* 主內容區域：移除過度邊距，提供寬敞閱讀與看盤視角 */
@@ -101,5 +103,23 @@
   width: 100%;
   padding: 16px;
   box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .navbar {
+    padding: 10px 14px;
+  }
+
+  .brand-title {
+    display: none;
+  }
+
+  .nav-item {
+    padding: 8px 10px;
+  }
+
+  .main-content {
+    padding: 10px;
+  }
 }
 </style>

@@ -123,7 +123,8 @@ onUnmounted(() => {
 <style scoped>
 .search-container {
   position: relative;
-  width: 320px;
+  width: min(320px, 100%);
+  flex: 1 1 280px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 }
 
@@ -138,7 +139,8 @@ onUnmounted(() => {
   cursor: text;
   transition: border-color 0.2s;
 }
-.search-box.is-open { border-color: #2962ff; box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.2); }
+.search-box:hover { border-color: #94a3b8; }
+.search-box.is-open { border-color: #2962ff; box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.14); }
 .icon { font-size: 16px; margin-right: 8px; color: #787b86; }
 .search-box input { border: none; outline: none; width: 100%; font-size: 16px; color: #131722; cursor: pointer; }
 .search-box.is-open input { cursor: text; }
@@ -192,5 +194,11 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 11px;
   font-weight: bold;
+}
+
+@media (max-width: 1100px) {
+  .search-container {
+    width: 100%;
+  }
 }
 </style>
