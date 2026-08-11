@@ -48,3 +48,9 @@ type GenerateResult struct {
 	Report        *Report           `json:"report,omitempty"`
 	Grounding     GroundingMetadata `json:"grounding"`
 }
+
+type PublishResult struct {
+	ID          int       `json:"id"`
+	Status      string    `json:"status"`
+	PublishedAt time.Time `json:"published_at"`
+}

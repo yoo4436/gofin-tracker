@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ const adminTokenHeader = "X-Daily-Report-Token"
 
 type GenerateService interface {
 	Generate(ctx context.Context, options GenerateOptions) (GenerateResult, error)
+}
+
+type PublishService interface {
+	Publish(ctx context.Context, reportID int) (PublishResult, error)
 }
 
 type generateRequest struct {
@@ -77,5 +82,44 @@ func NewGenerateHandler(service GenerateService, adminToken string) gin.HandlerF
 			status = http.StatusCreated
 		}
 		c.JSON(status, result)
+	}
+}
+
+func NewPublishHandler(service PublishService, adminToken string) gin.HandlerFunc {
+	adminToken = strings.TrimSpace(adminToken)
+
+	return func(c *gin.Context) {
+		if service == nil || adminToken == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "daily_report_service_unavailable"})
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(c.GetHeader(adminTokenHeader)), []byte(adminToken)) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		reportID, err := strconv.Atoi(c.Param("id"))
+		if err != nil || reportID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_report_id"})
+			return
+		}
+
+		result, err := service.Publish(c.Request.Context(), reportID)
+		if err != nil {
+			log.Printf("publish daily report %d: %v", reportID, err)
+			switch {
+			case errors.Is(err, ErrDailyReportNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "daily_report_not_found"})
+			case errors.Is(err, ErrDailyReportNotDraft):
+				c.JSON(http.StatusConflict, gin.H{"error": "daily_report_not_draft"})
+			case errors.Is(err, ErrDailyReportNotPublishable):
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "daily_report_not_publishable"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "daily_report_publish_failed"})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, result)
 	}
 }

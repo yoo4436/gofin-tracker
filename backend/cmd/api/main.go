@@ -92,6 +92,7 @@ func main() {
 		})
 	})
 
+	dailyReportRepository := dailyreport.NewSQLRepository(db)
 	var dailyReportService *dailyreport.Service
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		location, locationErr := time.LoadLocation("Asia/Taipei")
@@ -101,7 +102,7 @@ func main() {
 		dailyReportService = dailyreport.NewService(
 			newssearch.NewGDELTClient(newssearch.Config{BaseURL: os.Getenv("GDELT_BASE_URL")}),
 			gemini.NewClient(gemini.Config{APIKey: apiKey, Model: os.Getenv("GEMINI_MODEL")}),
-			dailyreport.NewSQLRepository(db),
+			dailyReportRepository,
 			location,
 		)
 	} else {
@@ -111,6 +112,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		v1.POST("/admin/daily-reports/generate", dailyreport.NewGenerateHandler(dailyReportService, os.Getenv("DAILY_REPORT_API_TOKEN")))
+		v1.POST("/admin/daily-reports/:id/publish", dailyreport.NewPublishHandler(dailyReportRepository, os.Getenv("DAILY_REPORT_API_TOKEN")))
 
 		// 獲取商品清單與動態搜尋 API
 		v1.GET("/symbols", func(c *gin.Context) {
@@ -246,7 +248,7 @@ func main() {
 
 		// 取得日報列表 API
 		v1.GET("/reports", func(c *gin.Context) {
-			rows, err := db.Query("SELECT id, title, summary, cover_image_url, is_premium, published_at FROM daily_reports WHERE status = 'published' AND published_at IS NOT NULL ORDER BY published_at DESC")
+			rows, err := db.Query("SELECT id, title, summary, COALESCE(cover_image_url, ''), is_premium, published_at FROM daily_reports WHERE status = 'published' AND published_at IS NOT NULL ORDER BY published_at DESC")
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
@@ -268,7 +270,7 @@ func main() {
 		v1.GET("/reports/:id", func(c *gin.Context) {
 			id := c.Param("id")
 			var r DailyReport
-			err := db.QueryRow("SELECT id, title, summary, content, cover_image_url, is_premium, published_at FROM daily_reports WHERE id = $1 AND status = 'published' AND published_at IS NOT NULL", id).
+			err := db.QueryRow("SELECT id, title, summary, content, COALESCE(cover_image_url, ''), is_premium, published_at FROM daily_reports WHERE id = $1 AND status = 'published' AND published_at IS NOT NULL", id).
 				Scan(&r.ID, &r.Title, &r.Summary, &r.Content, &r.CoverImageURL, &r.IsPremium, &r.PublishedAt)
 
 			if err != nil {

@@ -3,8 +3,17 @@ package dailyreport
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/lib/pq"
+)
+
+var (
+	ErrDailyReportNotFound       = errors.New("daily report not found")
+	ErrDailyReportNotDraft       = errors.New("daily report is not a draft")
+	ErrDailyReportNotPublishable = errors.New("daily report is not publishable")
 )
 
 type SQLRepository struct {
@@ -106,4 +115,28 @@ func (r *SQLRepository) SaveDraft(ctx context.Context, reportDate, model, prompt
 		return 0, false, err
 	}
 	return reportID, true, nil
+}
+
+func (r *SQLRepository) Publish(ctx context.Context, reportID int) (PublishResult, error) {
+	var result PublishResult
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, status, published_at
+		FROM public.publish_daily_report($1)
+	`, reportID).Scan(&result.ID, &result.Status, &result.PublishedAt)
+	if err == nil {
+		return result, nil
+	}
+
+	var postgresError *pq.Error
+	if errors.As(err, &postgresError) {
+		switch string(postgresError.Code) {
+		case "P0002":
+			return PublishResult{}, fmt.Errorf("%w: %v", ErrDailyReportNotFound, err)
+		case "P0001":
+			return PublishResult{}, fmt.Errorf("%w: %v", ErrDailyReportNotDraft, err)
+		case "23514":
+			return PublishResult{}, fmt.Errorf("%w: %v", ErrDailyReportNotPublishable, err)
+		}
+	}
+	return PublishResult{}, err
 }
