@@ -1,24 +1,28 @@
 <template>
   <div class="report-detail-container">
-    <button class="back-btn" @click="$router.push('/reports')">
+    <router-link class="back-btn" to="/reports">
       ← 返回日報列表
-    </button>
+    </router-link>
 
-    <div v-if="loading" class="loading-state">
-      <p>⏳ 載入日報內容中...</p>
+    <div v-if="loading" class="report-article detail-skeleton" aria-label="正在載入日報">
+      <span class="skeleton skeleton-meta" aria-hidden="true"></span>
+      <span class="skeleton skeleton-title" aria-hidden="true"></span>
+      <span class="skeleton skeleton-divider" aria-hidden="true"></span>
+      <span v-for="index in 5" :key="index" class="skeleton skeleton-line" aria-hidden="true"></span>
     </div>
 
-    <div v-else-if="error" class="error-state">
-      <p>❌ {{ error }}</p>
+    <div v-else-if="error" class="state-panel" role="alert">
+      <span class="state-icon" aria-hidden="true">!</span>
+      <h2>無法顯示這篇日報</h2>
+      <p>{{ error }}</p>
+      <button type="button" class="retry-btn" @click="loadReport(route.params.id)">重新載入</button>
     </div>
 
     <article v-else-if="report" class="report-article">
       <header class="report-header">
         <span v-if="report.is_premium" class="badge-premium">會員獨享</span>
         <h1 class="report-title">{{ report.title }}</h1>
-        <p class="report-meta">
-          📅 發布時間：{{ new Date(report.published_at).toLocaleDateString() }}
-        </p>
+        <p class="report-meta">📅 發布時間：{{ formattedPublishedAt }}</p>
       </header>
 
       <hr class="divider" />
@@ -29,27 +33,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-
-interface DailyReport {
-  id: number
-  title: string
-  summary: string
-  content: string
-  cover_image_url: string
-  is_premium: boolean
-  published_at: string
-}
+import { fetchReport, PublicApiError, type DailyReportDetail } from '../api/reports'
 
 const route = useRoute()
-const report = ref<DailyReport | null>(null)
+const report = ref<DailyReportDetail | null>(null)
 const loading = ref(true)
 const error = ref('')
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+let requestController: AbortController | null = null
 
 // 設定 marked 讓 Markdown 裡的超連結自動在「新頁籤」開啟
 const renderer = new marked.Renderer()
@@ -65,22 +59,48 @@ const parsedContent = computed(() => {
   return DOMPurify.sanitize(rawHtml)
 })
 
-onMounted(async () => {
-  try {
-    const reportId = route.params.id
-    const res = await fetch(`${API_BASE_URL}/api/v1/reports/${reportId}`)
-    
-    if (!res.ok) {
-      throw new Error('找不到該篇日報內容')
-    }
-    
-    report.value = await res.json()
-  } catch (err: any) {
-    error.value = err.message || '讀取日報失敗'
-  } finally {
-    loading.value = false
-  }
+const formattedPublishedAt = computed(() => {
+  if (!report.value) return ''
+  const date = new Date(report.value.published_at)
+  if (Number.isNaN(date.getTime())) return '日期未提供'
+  return new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(date)
 })
+
+const loadReport = async (routeId: string | string[] | undefined) => {
+  requestController?.abort()
+  report.value = null
+  error.value = ''
+  loading.value = true
+
+  const rawId = Array.isArray(routeId) ? routeId[0] : routeId
+  const reportId = rawId && /^\d+$/.test(rawId) ? Number(rawId) : Number.NaN
+  if (!Number.isSafeInteger(reportId) || reportId < 1) {
+    error.value = '日報網址無效'
+    loading.value = false
+    return
+  }
+
+  const controller = new AbortController()
+  requestController = controller
+
+  try {
+    report.value = await fetchReport(reportId, controller.signal)
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') return
+    error.value = cause instanceof PublicApiError && cause.status === 404
+      ? '找不到該篇日報，可能尚未發布或已下架。'
+      : cause instanceof Error ? cause.message : '讀取日報失敗'
+  } finally {
+    if (requestController === controller) loading.value = false
+  }
+}
+
+watch(() => route.params.id, loadReport, { immediate: true })
+onBeforeUnmount(() => requestController?.abort())
 </script>
 
 <style scoped>
@@ -92,6 +112,8 @@ onMounted(async () => {
 }
 
 .back-btn {
+  display: inline-flex;
+  align-items: center;
   background-color: #2a2e39;
   color: #d1d4dc;
   border: 1px solid #363a45;
@@ -100,6 +122,7 @@ onMounted(async () => {
   cursor: pointer;
   margin-bottom: 20px;
   font-size: 0.9rem;
+  text-decoration: none;
   transition: all 0.2s ease;
 }
 
@@ -207,10 +230,78 @@ onMounted(async () => {
   text-decoration: underline;
 }
 
-.loading-state, .error-state {
+.state-panel {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 40px;
-  font-size: 1.1rem;
+  border: 1px dashed #363b49;
+  border-radius: 14px;
+  background-color: rgba(30, 34, 45, 0.55);
+}
+
+.state-panel h2 {
+  margin: 14px 0 6px;
+  color: #ffffff;
+  font-size: 1.25rem;
+}
+
+.state-panel p {
+  color: #969aa7;
+}
+
+.state-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background-color: rgba(246, 53, 138, 0.14);
+  color: #ff6cae;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.retry-btn {
+  margin-top: 18px;
+  padding: 9px 16px;
+  border: 1px solid #2962ff;
+  border-radius: 8px;
+  background-color: #2962ff;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.detail-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skeleton {
+  display: block;
+  height: 15px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #282d39 25%, #343a48 50%, #282d39 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+.skeleton-meta { width: 22%; }
+.skeleton-title { width: min(680px, 82%); height: 32px; }
+.skeleton-divider { width: 100%; height: 1px; margin: 8px 0; }
+.skeleton-line { width: 100%; }
+.skeleton-line:last-child { width: 64%; }
+
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
 }
 
 @media (max-width: 640px) {
