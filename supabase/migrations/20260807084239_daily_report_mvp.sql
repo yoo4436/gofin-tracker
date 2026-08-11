@@ -10,8 +10,10 @@ ALTER TABLE public.daily_reports
 
 UPDATE public.daily_reports
 SET
-  status = 'draft',
-  published_at = NULL,
+  status = CASE
+    WHEN published_at IS NULL THEN 'draft'
+    ELSE 'published'
+  END,
   updated_at = now();
 
 UPDATE public.daily_reports
@@ -42,9 +44,7 @@ ALTER TABLE public.daily_reports
         status IN ('published', 'archived')
         AND published_at IS NOT NULL
       )
-    ),
-  ADD CONSTRAINT daily_reports_published_author_check
-    CHECK (status = 'draft' OR author_id IS NOT NULL);
+    );
 
 DROP INDEX public.idx_reports_published_at;
 
@@ -174,11 +174,6 @@ BEGIN
   IF v_report.status <> 'draft' THEN
     RAISE EXCEPTION 'daily report % is not a draft', p_report_id
       USING ERRCODE = 'P0001';
-  END IF;
-
-  IF v_report.author_id IS NULL THEN
-    RAISE EXCEPTION 'daily report % requires an author before publication', p_report_id
-      USING ERRCODE = '23514';
   END IF;
 
   IF btrim(v_report.title) = ''
