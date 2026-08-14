@@ -18,7 +18,7 @@
 
     <div ref="chartContainer" class="chart-box">
       <div class="chart-legend">
-        <span class="legend-title">BTC/USDT 1D</span>
+        <span class="legend-title">{{ selectedSymbolLabel }} 1D</span>
         <span v-if="showMa" class="legend-item ma7">MA(7)</span>
         <span v-if="showMa" class="legend-item ma25">MA(25)</span>
         <span v-if="showBb" class="legend-item bb">BB(20, 2)</span>
@@ -53,6 +53,13 @@ interface ApiResponse {
   rsi: number;
 }
 
+interface SymbolItem {
+  exchange_symbol_id: number;
+  symbol_code: string;
+  name: string;
+  exchange_name: string;
+}
+
 const chartContainer = ref<HTMLDivElement | null>(null);
 const matchContainer = ref<HTMLDivElement | null>(null);
 const rsiContainer = ref<HTMLDivElement | null>(null);
@@ -62,12 +69,14 @@ const showMa = ref(true);
 const showBb = ref(true);
 const showMacd = ref(true);
 const showRsi = ref(true);
+const selectedSymbolLabel = ref('Select symbol');
+let loadKlines: ((exchangeSymbolId: number) => Promise<void>) | null = null;
 
 
-const handleSymbolChange = (selectedSymbol: any) => {
-  console.log("前端成功接收到選擇的商品：", selectedSymbol);
-  alert(`你選擇了：${selectedSymbol.name} (${selectedSymbol.symbol_code})`);
-}; 
+const handleSymbolChange = async (selectedSymbol: SymbolItem) => {
+  selectedSymbolLabel.value = `${selectedSymbol.symbol_code} / ${selectedSymbol.exchange_name}`;
+  await loadKlines?.(selectedSymbol.exchange_symbol_id);
+};
 
 let mainChart: IChartApi | null = null;
 let macdChart: IChartApi | null = null;
@@ -163,39 +172,40 @@ onMounted(async () => {
   window.addEventListener('resize', resizeDashboard);
 
   // 5. 抓取資料並繪圖
-  try {
-    
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
-    const response = await fetch(`${API_BASE_URL}/api/v1/klines`);
-    if (!response.ok) throw new Error('API 失敗');
-    const rawData: ApiResponse[] = await response.json();
-    const times = rawData.map(item => item.time as Time);
+  loadKlines = async (exchangeSymbolId: number) => {
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+      const response = await fetch(`${API_BASE_URL}/api/v1/klines?exchange_symbol_id=${encodeURIComponent(exchangeSymbolId)}`);
+      if (!response.ok) throw new Error('API 失敗');
+      const rawData: ApiResponse[] = await response.json();
+      const times = rawData.map(item => item.time as Time);
 
-    candlestickSeries.setData(rawData.map(item => ({ time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close })));
+      candlestickSeries.setData(rawData.map(item => ({ time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close })));
 
-    ma7Series.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma7 })));
-    ma25Series.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma25 })));
-    bbUpperSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiUpper })));
-    bbMiddleSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiMiddle })));
-    bbLowerSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiLower })));
+      ma7Series!.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma7 })));
+      ma25Series!.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma25 })));
+      bbUpperSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiUpper })));
+      bbMiddleSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiMiddle })));
+      bbLowerSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiLower })));
 
-    difSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dif })));
-    deaSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dea })));
-    histSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.hist, color: item.hist >= 0 ? '#26a69a' : '#ef5350' })));
+      difSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dif })));
+      deaSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dea })));
+      histSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.hist, color: item.hist >= 0 ? '#26a69a' : '#ef5350' })));
 
-    rsiSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.rsi })));
-    rsi30Series.setData(rawData.map((_, i) => ({ time: times[i], value: 30 })));
-    rsi70Series.setData(rawData.map((_, i) => ({ time: times[i], value: 70 })));
+      rsiSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.rsi })));
+      rsi30Series.setData(rawData.map((_, i) => ({ time: times[i], value: 30 })));
+      rsi70Series.setData(rawData.map((_, i) => ({ time: times[i], value: 70 })));
 
-    mainChart.timeScale().fitContent();
-    const logicalRange = mainChart.timeScale().getVisibleLogicalRange();
-    if (logicalRange) {
-      if (macdChart) macdChart.timeScale().setVisibleLogicalRange(logicalRange);
-      if (rsiChart) rsiChart.timeScale().setVisibleLogicalRange(logicalRange);
-    }
-  } catch (error) {
+      mainChart!.timeScale().fitContent();
+      const logicalRange = mainChart!.timeScale().getVisibleLogicalRange();
+      if (logicalRange) {
+        if (macdChart) macdChart.timeScale().setVisibleLogicalRange(logicalRange);
+        if (rsiChart) rsiChart.timeScale().setVisibleLogicalRange(logicalRange);
+      }
+    } catch (error) {
     console.error('抓取失敗:', error);
-  }
+    }
+  };
 });
 </script>
 

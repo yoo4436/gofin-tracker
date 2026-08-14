@@ -25,7 +25,7 @@
         <li 
           v-else 
           v-for="item in symbols" 
-          :key="item.id" 
+          :key="item.exchange_symbol_id"
           @click="selectSymbol(item)"
           class="symbol-item"
         >
@@ -44,6 +44,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 // 對應 Go 後端的資料結構
 interface SymbolItem {
   id: number;
+  exchange_symbol_id: number;
   symbol_code: string;
   name: string;
   market_type: string;

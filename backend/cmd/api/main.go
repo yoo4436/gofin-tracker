@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,11 +21,12 @@ import (
 
 // SymbolResponse 定義商品清單的回傳格式
 type SymbolResponse struct {
-	ID           int    `json:"id"`
-	SymbolCode   string `json:"symbol_code"`
-	Name         string `json:"name"`
-	MarketType   string `json:"market_type"`
-	ExchangeName string `json:"exchange_name"` // 這是 JOIN 拿到的交易所名稱
+	ID               int    `json:"id"`
+	ExchangeSymbolID int    `json:"exchange_symbol_id"`
+	SymbolCode       string `json:"symbol_code"`
+	Name             string `json:"name"`
+	MarketType       string `json:"market_type"`
+	ExchangeName     string `json:"exchange_name"` // 這是 JOIN 拿到的交易所名稱
 }
 
 // 升級回應結構體：包進所有全新指標
@@ -122,7 +124,8 @@ func main() {
 			// 修改 SQL 查詢：加入 COALESCE 防止 NULL 炸掉程式
 			baseQuery := `
 				SELECT 
-					s.id, 
+					s.id,
+					es.id AS exchange_symbol_id,
 					s.symbol_code, 
 					COALESCE(s.name, '') AS name, 
 					COALESCE(s.market_type, '') AS market_type, 
@@ -151,7 +154,7 @@ func main() {
 				args = append(args, searchTerm)
 			}
 
-			baseQuery += ` ORDER BY s.id ASC;`
+			baseQuery += ` ORDER BY es.id ASC;`
 
 			// 執行查詢，將 args 展開帶入
 			rows, err := db.Query(baseQuery, args...)
@@ -166,7 +169,7 @@ func main() {
 			for rows.Next() {
 				var s SymbolResponse
 				// 把錯誤印出來：這樣萬一還是錯，我們看終端機就知道兇手是哪個欄位！
-				if err := rows.Scan(&s.ID, &s.SymbolCode, &s.Name, &s.MarketType, &s.ExchangeName); err != nil {
+				if err := rows.Scan(&s.ID, &s.ExchangeSymbolID, &s.SymbolCode, &s.Name, &s.MarketType, &s.ExchangeName); err != nil {
 					log.Println("⚠️ 資料解析錯誤 (請檢查欄位名稱或型別):", err)
 					continue
 				}
@@ -183,20 +186,35 @@ func main() {
 
 		// 獲取 K 線與技術指標 API
 		v1.GET("/klines", func(c *gin.Context) {
+			exchangeSymbolID, err := strconv.Atoi(c.Query("exchange_symbol_id"))
+			if err != nil || exchangeSymbolID <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_exchange_symbol_id"})
+				return
+			}
+
+			var exists bool
+			if err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM exchange_symbol WHERE id = $1)", exchangeSymbolID).Scan(&exists); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "exchange_symbol_lookup_failed"})
+				return
+			}
+			if !exists {
+				c.JSON(http.StatusNotFound, gin.H{"error": "exchange_symbol_not_found"})
+				return
+			}
 			// EMA/RSI 需要熱身期，這次撈 200 根算完再切 100 根給前端
 			query := `SELECT time, open_price, high_price, low_price, close_price 
 					  FROM klines 
-					  WHERE exchange_symbol_id = 1 AND interval = '1d'
+					  WHERE exchange_symbol_id = $1 AND interval = '1d'
 					  ORDER BY time ASC;`
 
-			rows, err := db.Query(query)
+			rows, err := db.Query(query, exchangeSymbolID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 			defer rows.Close()
 
-			var klines []KlineResponse
+			klines := make([]KlineResponse, 0)
 			var closePrices []float64
 
 			for rows.Next() {
