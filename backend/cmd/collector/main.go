@@ -6,120 +6,142 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
-	// 💡 記得引入 PostgreSQL 驅動（必須執行 go get github.com/lib/pq）
 	_ "github.com/lib/pq"
 )
 
-// 這裡定義一個與你資料庫欄位對應的 Go 結構體
-type Candlestick struct {
-	Time       time.Time
-	OpenPrice  float64
-	HighPrice  float64
-	LowPrice   float64
-	ClosePrice float64
-	Volume     float64
+const (
+	binanceKlinesURL = "https://api.binance.com/api/v3/klines"
+	klineInterval    = "1d"
+	klineLimit       = 500
+)
+
+type exchangeSymbol struct {
+	ID              int
+	TradingPairCode string
 }
 
 func main() {
-	// 1. 載入根目錄的 .env 檔案
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("載入 .env 檔案失敗")
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env not found; using environment variables")
 	}
-
-	// 2. 讀取環境變數
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
-		log.Fatal("找不到 DATABASE_URL 環境變數")
+		log.Fatal("DATABASE_URL is required")
 	}
-
-	// 3. 連線資料庫
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatalf("資料庫連線失敗: %v", err)
+		log.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		log.Fatalf("connect database: %v", err)
+	}
 
-	// 實際戳戳看資料庫，確保網路有通
-	err = db.Ping()
+	products, err := loadBinanceSymbols(db)
 	if err != nil {
-		log.Fatalf("雲端資料庫連線失敗 (請檢查帳密或防火牆): %v", err)
+		log.Fatalf("load exchange symbols: %v", err)
 	}
-	fmt.Println("🎉 雲端資料庫連線成功！")
-
-	// ==========================================
-	// 2. 戳 幣安 API 抓取 BTCUSDT 日線歷史資料
-	// ==========================================
-	symbol := "BTCUSDT"
-	interval := "1d"
-	limit := 500 // 抓最近 500 根測試
-
-	url := fmt.Sprintf("https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d", symbol, interval, limit)
-	fmt.Printf("正在從幣安抓取資料... 網址: %s\n", url)
-
-	resp, err := http.Get(url)
-	if err != nil {
-		log.Fatalf("發送網路請求失敗: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("幣安 API 回傳錯誤狀態碼: %d", resp.StatusCode)
+	if len(products) == 0 {
+		log.Println("no active Binance exchange symbols with a trading_pair_code")
+		return
 	}
 
-	// ==========================================
-	// 3. 解析幣安神奇的「二維不規則陣列 JSON」
-	// ==========================================
-	// 幣安格式: [ [開放時間, "開盤價", "最高價", "最低價", "收盤價", "成交量", ...], [...] ]
-	// 在 Go 裡面最快解析這種雜亂陣列的做法是解析成 [][]interface{}
-	var rawData [][]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&rawData); err != nil {
-		log.Fatalf("JSON 解析失敗: %v", err)
-	}
-
-	fmt.Printf("成功抓取！開始處理 %d 條 K 線數據...\n", len(rawData))
-
-	// ==========================================
-	// 4. 轉換型別並寫入資料庫
-	// ==========================================
-	exchangeSymbolID := 1 // 假設你在 exchange_symbols 表中，BTCUSDT 的 id 是 1
-
-	for _, item := range rawData {
-		// 幣安格式第 0 項是毫秒時間戳 (在 json 轉換中會先變成 float64)
-		openTimeMs := int64(item[0].(float64))
-		// 將毫秒轉成 Go 的 time.Time 格式
-		klineTime := time.Unix(0, openTimeMs*int64(time.Millisecond))
-
-		// 💡 經典坑：價格在 JSON 裡是字串型別 (例如 "64500.20")，必須手動轉成 float64
-		openPrice, _ := strconv.ParseFloat(item[1].(string), 64)
-		highPrice, _ := strconv.ParseFloat(item[2].(string), 64)
-		lowPrice, _ := strconv.ParseFloat(item[3].(string), 64)
-		closePrice, _ := strconv.ParseFloat(item[4].(string), 64)
-		volume, _ := strconv.ParseFloat(item[5].(string), 64)
-
-		// 準備寫入資料庫（使用 ON CONFLICT 防止重複主鍵噴錯）
-		query := `
-			INSERT INTO klines (time, exchange_symbol_id, interval, open_price, high_price, low_price, close_price, volume)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (time, exchange_symbol_id, interval) 
-			DO UPDATE SET 
-			high_price = GREATEST(klines.high_price, EXCLUDED.high_price),
-			low_price = LEAST(klines.low_price, EXCLUDED.low_price),
-			close_price = EXCLUDED.close_price,
-			volume = EXCLUDED.volume;
-		`
-
-		_, err := db.Exec(query, klineTime, exchangeSymbolID, interval, openPrice, highPrice, lowPrice, closePrice, volume)
-		if err != nil {
-			fmt.Printf("⚠️ 寫入時間為 %s 的資料失敗: %v\n", klineTime, err)
-			continue
+	client := &http.Client{Timeout: 30 * time.Second}
+	failed := 0
+	for _, product := range products {
+		if err := collectKlines(client, db, product); err != nil {
+			failed++
+			log.Printf("collect %s (exchange_symbol_id=%d): %v", product.TradingPairCode, product.ID, err)
 		}
 	}
+	log.Printf("collector finished: total=%d succeeded=%d failed=%d", len(products), len(products)-failed, failed)
+}
 
-	fmt.Println("🚀 所有測試資料處理完畢，請至雲端資料庫檢查成果！")
+func loadBinanceSymbols(db *sql.DB) ([]exchangeSymbol, error) {
+	rows, err := db.Query(`
+		SELECT es.id, es.trading_pair_code
+		FROM exchange_symbol es
+		JOIN exchange e ON e.id = es.exchange_id
+		WHERE LOWER(e.name) = 'binance'
+		  AND NULLIF(TRIM(es.trading_pair_code), '') IS NOT NULL
+		ORDER BY es.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var products []exchangeSymbol
+	for rows.Next() {
+		var product exchangeSymbol
+		if err := rows.Scan(&product.ID, &product.TradingPairCode); err != nil {
+			return nil, err
+		}
+		products = append(products, product)
+	}
+	return products, rows.Err()
+}
+
+func collectKlines(client *http.Client, db *sql.DB, product exchangeSymbol) error {
+	endpoint, err := url.Parse(binanceKlinesURL)
+	if err != nil {
+		return err
+	}
+	query := endpoint.Query()
+	query.Set("symbol", product.TradingPairCode)
+	query.Set("interval", klineInterval)
+	query.Set("limit", strconv.Itoa(klineLimit))
+	endpoint.RawQuery = query.Encode()
+
+	resp, err := client.Get(endpoint.String())
+	if err != nil {
+		return fmt.Errorf("call Binance API: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Binance API returned %s", resp.Status)
+	}
+
+	var rawData [][]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&rawData); err != nil {
+		return fmt.Errorf("decode Binance response: %w", err)
+	}
+	for index, item := range rawData {
+		if len(item) < 6 {
+			return fmt.Errorf("kline %d has %d fields", index, len(item))
+		}
+		var openTimeMs int64
+		var values [5]string
+		if err := json.Unmarshal(item[0], &openTimeMs); err != nil {
+			return fmt.Errorf("decode kline %d open time: %w", index, err)
+		}
+		for i := range values {
+			if err := json.Unmarshal(item[i+1], &values[i]); err != nil {
+				return fmt.Errorf("decode kline %d field %d: %w", index, i+1, err)
+			}
+		}
+
+		_, err := db.Exec(`
+			INSERT INTO klines (time, exchange_symbol_id, interval, open_price, high_price, low_price, close_price, volume)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (time, exchange_symbol_id, interval)
+			DO UPDATE SET
+				high_price = GREATEST(klines.high_price, EXCLUDED.high_price),
+				low_price = LEAST(klines.low_price, EXCLUDED.low_price),
+				close_price = EXCLUDED.close_price,
+				volume = EXCLUDED.volume`,
+			time.UnixMilli(openTimeMs), product.ID, klineInterval,
+			values[0], values[1], values[2], values[3], values[4],
+		)
+		if err != nil {
+			return fmt.Errorf("upsert kline %d: %w", index, err)
+		}
+	}
+	log.Printf("stored %d klines for %s (exchange_symbol_id=%d)", len(rawData), product.TradingPairCode, product.ID)
+	return nil
 }

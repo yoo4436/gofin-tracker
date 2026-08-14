@@ -16,5 +16,5 @@ jobs:
         # 使用 curl 發送 HTTP 請求去戳你的 Render API
         run: |
           echo "Pinging Render API..."
-          curl -s https://gofin-tracker.onrender.com/api/v1/klines > /dev/null
+          curl -s https://gofin-tracker.onrender.com/ > /dev/null
           echo "Ping completed!"
