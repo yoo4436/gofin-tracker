@@ -1,117 +1,161 @@
-# GoFin-Tracker 🚀
+# GoFin-Tracker 📈
 
-一個基於 **Go** 與 **Vue 3 (TypeScript)** 構建的高性能「即時金融監控與指標分析中台」。本系統旨在幫助投資者整合多市場（加密貨幣、股票）數據，透過後端自動化指標計算（MACD, Bollinger Bands, RSI）提供宏觀的決策分析輔助。
+以 **Go + Vue 3** 打造的金融市場資訊整合與 AI 分析平台，將市場價格、技術指標、新聞來源與每日分析報告整理在同一個介面中。
 
-🔗 **線上展示連結**：[前往前端 Vercel 部署網頁](https://gofin-tracker-flame.vercel.app/)  
-*(提示：後端 API 部署於 Render 免費方案，首次載入若需等待 30-50 秒為 Server 喚醒之冷啟動現象。)*
+[線上展示](https://gofin-tracker-flame.vercel.app/) · [AI 日報 API 文件](docs/daily-report-api.md)
 
----
+> 後端目前部署於 Render 免費方案。服務閒置後首次開啟，可能因 Cold Start 等待約 30～50 秒。
 
-## 💡 核心動機 (Why this project?)
+## 核心功能
 
-本專案起源於對金融投資的濃厚興趣，以及想親自動手實現一套完整交易系統的好奇心。在實際使用市面上的看盤工具時，我發現數據抓取、指標運算與前端視覺化往往流於碎片化。
+- **市場資料收集**：Collector 從 Binance 取得 BTCUSDT 日線資料，並以 UPSERT 避免重複紀錄。
+- **技術指標分析**：Go API 在記憶體中計算 MACD、MA7、MA25、Bollinger Bands 與 RSI。
+- **互動式圖表**：Vue 3 前端使用 TradingView Lightweight Charts 呈現 K 線與指標。
+- **商品搜尋**：透過公開 API 查詢商品、交易所與市場類型。
+- **AI 每日報告**：整合 GDELT 新聞索引與 Gemini，產生帶有來源資訊的結構化草稿。
+- **審核後發布**：日報先以草稿保存，通過資料庫完整性驗證後才會公開於列表與閱讀頁。
 
-同時，這也是我為了深入掌握 **Go 語言** 高併發特性與記憶體管理所打造的實作練習。因量化交易極度看重系統的吞吐量與啟動速度，Go 語言精簡的語法與強大的協程模型（Goroutine）非常符合這個系統的相性。
+AI 內容僅用於資訊整理與研究輔助，不會自動執行交易，也不構成投資建議。
 
----
+## 系統架構
 
-## 🛠️ 技術棧 (Tech Stack)
+```mermaid
+flowchart LR
+    BINANCE["Binance Market Data"] --> COLLECTOR["Go Collector"]
+    COLLECTOR --> DB[("Supabase PostgreSQL")]
 
-### 後端 (Backend) - Go Ecosystem
-* **核心語言**: Go
-* **Web 框架**: Gin (高效率路由、自動 JSON 綁定)
-* **資料庫驅動**: pgx (高效能原生 PostgreSQL 驅動)
-* **環境管理**: godotenv (機密資訊與連線字串抽離，確保資安)
+    GDELT["GDELT News Index"] --> REPORT["Daily Report Service"]
+    REPORT --> GEMINI["Gemini"]
+    GEMINI --> REPORT
+    REPORT --> DB
 
-### 前端 (Frontend) - Vue 3 流派
-* **核心框架**: Vue 3 (Composition API) + Vite
-* **開發語言**: TypeScript (強型別嚴格規範，大幅減少前後端對接 Bug)
-* **圖表視覺化**: TradingView Lightweight Charts (高性能 Canvas 繪圖)
+    DB --> API["Go / Gin API"]
+    API --> INDICATORS["Indicator Engine"]
+    API --> FRONTEND["Vue 3 Frontend"]
+```
 
-### 基礎設施與自動化 (DevOps & Infrastructure)
-* **Database**: Supabase (PostgreSQL)
-* **Deployment**: Vercel (Frontend靜態託管) + Render (Backend常駐服務)
-* **CI/CD & 保活機制**: GitHub Actions Workflow (實作雲端自動化排程與 PING 保活機制) (但因Actions會有延遲關係，日後需要再另行解決方案)
+設計重點：
 
----
+- API Server 與 Collector 使用獨立進入點，避免資料收集工作阻塞 Web API。
+- K 線以 `(time, exchange_symbol_id, interval)` 識別，重複收集時安全更新既有資料。
+- 技術指標由後端即時計算，不另外儲存衍生資料。
+- AI 只處理後端整理過的市場與新聞內容；草稿不會自動公開。
 
-## 🧠 架構決策與設計理念 (Architectural Decisions)
+## 技術棧
 
-在開發過程中，為了解決雲端資源限制與系統效能，本專案採取了以下核心架構設計：
+| Layer | Technology |
+| --- | --- |
+| Backend | Go、Gin、PostgreSQL driver |
+| Frontend | Vue 3、TypeScript、Vite、Vue Router |
+| Charting | TradingView Lightweight Charts |
+| Database | Supabase PostgreSQL、SQL Migrations |
+| AI & News | Gemini API、GDELT DOC API |
+| Deployment | Render、Vercel、GitHub Actions |
 
-### 1. 冪等性與容量極致優化 (UPSERT 機制)
-為了解決 Supabase 免費版的容量限制，並確保背景排程抓取資料時的穩定性，系統在 `klines` 價格表設定了 `(time, exchange_symbol_id, interval)` 的**複合主鍵**。
-在寫入端全面採用 PostgreSQL 的 `ON CONFLICT DO UPDATE SET` (UPSERT) 機制。配合 `GREATEST` 與 `LEAST` 函數，常駐程式在輪詢時僅更新當天日線的一列數據。這不僅實現了極高的冪等性（程式即使斷線重啟也不會產生髒數據），也確保了 500MB 的免費空間可穩定常駐運行數十年。
+## 快速開始
 
-### 2. 記憶體內高效計算 (In-Memory Processing)
-為了維持極致的系統效能，所有的技術指標（MACD、MA 均線、布林帶三軌、RSI）**皆不在資料庫開表儲存**。當前端發起請求時，Go 後端利用極快的浮點數迴圈運算，在伺服器記憶體內即時計算完成並封裝 JSON。這避免了頻繁的資料庫 I/O，實現了近乎零延遲的指標呈現。
+### 1. 前置需求
 
-### 3. 多對多市場抽象化設計 (Market Abstraction)
-考量到未來需整合台股或期貨市場，資料庫設計導入了 `exchange_symbols` 作為中介對照表，將「商品定義」與「價格數據」完美解耦。後端的資料抓取器（Collector）與 API 伺服器（API Server）也遵循 Monorepo 架構拆分為雙核心執行檔 (`cmd/collector` 與 `cmd/api`)，確保職責分離。
+- Go 1.26+
+- Node.js
+- Docker Desktop
+- Supabase CLI
 
----
+### 2. 取得專案
 
-## ⚙️ 如何在本機運行 (Quick Start)
-
-### 1. 複製本專案
 ```bash
-git clone https://github.com/yoo4436/gofin-tracker.git && cd gofin-tracker
+git clone https://github.com/yoo4436/gofin-tracker.git
+cd gofin-tracker
 ```
 
-### 2. 環境變數設定
+### 3. 啟動本機資料庫
 
-#### 2-1. 建立資料庫結構
-請前往你的 Supabase 或 PostgreSQL 控制台，執行以下 SQL 語法以建立所需的 Table 與複合主鍵：
-```sql
--- 建立交易商品對照表
-CREATE TABLE exchange_symbols (
-    id SERIAL PRIMARY KEY,
-    symbol VARCHAR(50) NOT NULL UNIQUE,
-    exchange_name VARCHAR(50) NOT NULL
-);
-
--- 建立 K 線價格表（內含複合主鍵以支援 UPSERT）
-CREATE TABLE klines (
-    time TIMESTAMP NOT NULL,
-    exchange_symbol_id INT REFERENCES exchange_symbols(id),
-    interval VARCHAR(10) NOT NULL,
-    open NUMERIC,
-    high NUMERIC,
-    low NUMERIC,
-    close NUMERIC,
-    volume NUMERIC,
-    PRIMARY KEY (time, exchange_symbol_id, interval)
-);
+```bash
+supabase start
+supabase db reset --local
 ```
 
-#### 2-2. 設定環境變數
-請參考專案根目錄下的 .env.example，在根目錄建立一個 .env 檔案，並填入你的 Supabase 連線字串：
+`db reset --local` 只會重建本機 Supabase；不會更新遠端資料庫。將 `supabase status` 顯示的本機 PostgreSQL 連線字串填入根目錄 `.env`：
+
+```bash
+cp .env.example .env
+```
 
 ```env
-DATABASE_URL="postgresql://postgres.[YOUR_PROJECT_ID]:[YOUR_PASSWORD]@aws-0-xxx.pooler.supabase.com:6543/postgres"
+DATABASE_URL="your_local_postgresql_connection_string"
 ```
 
-### 3. 啟動後端服務 (API Server)
-確保你的終端機路徑停留在專案根目錄（gofin-tracker/），執行以下指令來下載 Go 套件並啟動服務：
-```bash
-# 下載後端所需的依賴套件 (如 Gin, pgx, godotenv)
-go mod tidy
+如需產生 AI 日報，再設定 `GEMINI_API_KEY`、`GEMINI_MODEL` 與 `DAILY_REPORT_API_TOKEN`。請勿提交 `.env` 或任何真實金鑰。
 
-# 啟動 API 伺服器 (預設會動態綁定或監聽 Port 8080)
+### 4. 啟動後端
+
+```bash
+go mod download
 go run backend/cmd/api/main.go
 ```
 
-若需要手動執行資料抓取器更新最新 K 線數據，可另外開啟終端機執行：
-```
+API 預設位於 `http://localhost:8080`。如需抓取最新市場資料，可在另一個終端機執行：
+
+```bash
 go run backend/cmd/collector/main.go
 ```
 
-### 4. 啟動前端環境
-開啟另一個新的終端機視窗，切換到前端資料夾，下載套件並啟動 Vite 測試伺服器：
+### 5. 啟動前端
+
 ```bash
+cp frontend/.env.example frontend/.env.local
 cd frontend
 npm install
 npm run dev
- ```
+```
 
----
+前端只需要公開 API 位址：
+
+```env
+VITE_API_BASE_URL="http://localhost:8080"
+```
+
+管理端 Token 與 Gemini API Key 僅能放在後端環境，不可加入前端設定。
+
+## 主要 API
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/symbols` | 搜尋商品與市場資訊 |
+| `GET` | `/api/v1/klines` | 取得 K 線與技術指標 |
+| `GET` | `/api/v1/reports` | 取得已發布的日報列表 |
+| `GET` | `/api/v1/reports/:id` | 取得單篇已發布日報 |
+
+日報產生與發布屬於受保護的管理流程，使用方式請參考 [AI 日報 API 文件](docs/daily-report-api.md)。
+
+## 專案結構
+
+```text
+gofin-tracker/
+├── backend/
+│   ├── cmd/api/           # REST API
+│   ├── cmd/collector/     # 市場資料收集
+│   └── internal/          # AI 日報、Gemini、GDELT
+├── frontend/              # Vue 3 使用者介面
+├── supabase/migrations/   # 資料庫結構與發布流程
+└── docs/                  # 進階開發文件
+```
+
+## Roadmap
+
+- [x] 加密貨幣 K 線與技術指標
+- [x] 商品搜尋與互動式圖表
+- [x] GDELT 新聞整合與 AI 日報草稿
+- [x] 日報審核、發布與公開閱讀頁
+- [ ] 更多市場與時間週期
+- [ ] 多來源新聞交叉驗證
+- [ ] 個人化 Watchlist 與通知
+- [ ] Portfolio Tracking 與 Backtesting
+
+## 免責聲明
+
+本專案提供的市場資料、技術指標、新聞內容與 AI 產生內容，僅供資訊整理、技術研究與學習用途，**不構成任何形式的投資建議、買賣建議或報酬保證**。任何投資決策與風險均由使用者自行承擔。
+
+## Author
+
+**Denny Ye（葉星佑）** · [GitHub](https://github.com/yoo4436)
