@@ -16,24 +16,41 @@
       </div>
     </div>
 
-    <div ref="chartContainer" class="chart-box">
-      <div class="chart-legend">
-        <span class="legend-title">{{ selectedSymbolLabel }} 1D</span>
-        <span v-if="showMa" class="legend-item ma7">MA(7)</span>
-        <span v-if="showMa" class="legend-item ma25">MA(25)</span>
-        <span v-if="showBb" class="legend-item bb">BB(20, 2)</span>
+    <div class="chart-workspace">
+      <div ref="chartContainer" class="chart-box">
+        <div class="chart-legend">
+          <span class="legend-title">{{ selectedSymbolLabel }} 1D</span>
+          <span v-if="showMa" class="legend-item ma7">MA(7)</span>
+          <span v-if="showMa" class="legend-item ma25">MA(25)</span>
+          <span v-if="showBb" class="legend-item bb">BB(20, 2)</span>
+        </div>
+      </div>
+
+      <div v-show="showMacd" ref="matchContainer" class="indicator-box macd-box">
+        <div class="indicator-legend">
+          <span class="indicator-name">MACD (12, 26, 9)</span>
+          <span class="macd-dif">DIF {{ formatIndicatorValue(macdLegend.dif) }}</span>
+          <span class="macd-dea">DEA {{ formatIndicatorValue(macdLegend.dea) }}</span>
+          <span :class="macdLegend.hist !== null && macdLegend.hist < 0 ? 'hist-negative' : 'hist-positive'">
+            HIST {{ formatIndicatorValue(macdLegend.hist) }}
+          </span>
+        </div>
+      </div>
+
+      <div v-show="showRsi" ref="rsiContainer" class="indicator-box rsi-box">
+        <div class="indicator-legend">
+          <span class="indicator-name">RSI (14)</span>
+          <span class="rsi-value">{{ formatIndicatorValue(rsiLegend) }}</span>
+        </div>
       </div>
     </div>
-
-    <div ref="matchContainer" class="macd-box" :style="{ display: showMacd ? 'block' : 'none' }"></div>
-    <div ref="rsiContainer" class="rsi-box" :style="{ display: showRsi ? 'block' : 'none' }"></div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue';
-import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts';
-import type { Time, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries, CrosshairMode, LineStyle } from 'lightweight-charts';
+import type { Time, IChartApi, ISeriesApi, LogicalRange, MouseEventParams } from 'lightweight-charts';
 import SymbolSearch from '../components/SymbolSearch.vue';
 
 interface ApiResponse {
@@ -60,6 +77,14 @@ interface SymbolItem {
   exchange_name: string;
 }
 
+interface CrosshairValues {
+  close: number;
+  dif: number;
+  dea: number;
+  hist: number;
+  rsi: number;
+}
+
 const chartContainer = ref<HTMLDivElement | null>(null);
 const matchContainer = ref<HTMLDivElement | null>(null);
 const rsiContainer = ref<HTMLDivElement | null>(null);
@@ -70,7 +95,24 @@ const showBb = ref(true);
 const showMacd = ref(true);
 const showRsi = ref(true);
 const selectedSymbolLabel = ref('Select symbol');
+const macdLegend = ref({ dif: null as number | null, dea: null as number | null, hist: null as number | null });
+const rsiLegend = ref<number | null>(null);
 let loadKlines: ((exchangeSymbolId: number) => Promise<void>) | null = null;
+let cleanupChartInteractions = () => {};
+let latestValues: CrosshairValues | null = null;
+let isChartDataReady = false;
+const crosshairValues = new Map<Time, CrosshairValues>();
+
+const formatIndicatorValue = (value: number | null) => value === null ? '—' : value.toFixed(2);
+
+const updateIndicatorLegends = (values: CrosshairValues | null) => {
+  macdLegend.value = {
+    dif: values?.dif ?? null,
+    dea: values?.dea ?? null,
+    hist: values?.hist ?? null,
+  };
+  rsiLegend.value = values?.rsi ?? null;
+};
 
 
 const handleSymbolChange = async (selectedSymbol: SymbolItem) => {
@@ -81,6 +123,9 @@ const handleSymbolChange = async (selectedSymbol: SymbolItem) => {
 let mainChart: IChartApi | null = null;
 let macdChart: IChartApi | null = null;
 let rsiChart: IChartApi | null = null;
+let candlestickSeries: ISeriesApi<"Candlestick"> | null = null;
+let difSeries: ISeriesApi<"Line"> | null = null;
+let rsiSeries: ISeriesApi<"Line"> | null = null;
 
 // 💡 將主圖的線條變數提升到外層，這樣按鈕函數才抓得到它們來設定隱藏
 let ma7Series: ISeriesApi<"Line"> | null = null;
@@ -93,6 +138,12 @@ const resizeDashboard = () => {
   if (mainChart && chartContainer.value) mainChart.resize(chartContainer.value.clientWidth, 400);
   if (macdChart && matchContainer.value && showMacd.value) macdChart.resize(matchContainer.value.clientWidth, 120);
   if (rsiChart && rsiContainer.value && showRsi.value) rsiChart.resize(rsiContainer.value.clientWidth, 120);
+};
+
+const updateVisibleTimeScale = () => {
+  mainChart?.timeScale().applyOptions({ visible: !showMacd.value && !showRsi.value });
+  macdChart?.timeScale().applyOptions({ visible: showMacd.value && !showRsi.value });
+  rsiChart?.timeScale().applyOptions({ visible: showRsi.value });
 };
 
 // 💡 透過 applyOptions({ visible: false }) 實現主圖線條的動態開關
@@ -112,12 +163,14 @@ const handleToggleBb = () => {
 const handleToggleMacd = async () => {
   showMacd.value = !showMacd.value;
   await nextTick();
+  updateVisibleTimeScale();
   resizeDashboard();
 };
 
 const handleToggleRsi = async () => {
   showRsi.value = !showRsi.value;
   await nextTick();
+  updateVisibleTimeScale();
   resizeDashboard();
 };
 
@@ -125,6 +178,20 @@ onMounted(async () => {
   if (!chartContainer.value || !matchContainer.value || !rsiContainer.value) return;
 
   const commonGrid = { vertLines: { color: '#f2f2f2' }, horzLines: { color: '#f2f2f2' } };
+  const commonCrosshair = {
+    mode: CrosshairMode.Normal,
+    vertLine: { color: '#64748b', width: 1 as const, style: LineStyle.Dashed, labelBackgroundColor: '#131722' },
+    horzLine: { color: '#94a3b8', width: 1 as const, style: LineStyle.Dashed, labelBackgroundColor: '#475569' },
+  };
+  const commonTimeScale = {
+    borderColor: '#d8dee8',
+    timeVisible: true,
+    secondsVisible: false,
+    rightOffset: 2,
+    barSpacing: 8,
+    minBarSpacing: 3,
+  };
+  const commonRightPriceScale = { borderColor: '#d8dee8', minimumWidth: 72 };
 
   // 1. 建立主圖
   mainChart = createChart(chartContainer.value, {
@@ -132,10 +199,12 @@ onMounted(async () => {
     height: 400,
     layout: { background: { color: '#ffffff' }, textColor: '#333333' },
     grid: commonGrid,
-    timeScale: { borderColor: '#cccccc', visible: false },
+    crosshair: commonCrosshair,
+    rightPriceScale: commonRightPriceScale,
+    timeScale: { ...commonTimeScale, visible: false },
   });
 
-  const candlestickSeries = mainChart.addSeries(CandlestickSeries, {
+  candlestickSeries = mainChart.addSeries(CandlestickSeries, {
     upColor: '#26a69a', downColor: '#ef5350', borderUpColor: '#26a69a', borderDownColor: '#ef5350', wickUpColor: '#26a69a', wickDownColor: '#ef5350',
   });
 
@@ -147,20 +216,20 @@ onMounted(async () => {
   bbLowerSeries = mainChart.addSeries(LineSeries, { color: '#9e9e9e', lineWidth: 1, lineStyle: 2 });
 
   // 2. 建立 MACD
-  macdChart = createChart(matchContainer.value, { width: matchContainer.value.clientWidth, height: 120, layout: { background: { color: '#ffffff' }, textColor: '#333333' }, grid: commonGrid, timeScale: { borderColor: '#cccccc', visible: false } });
-  const difSeries = macdChart.addSeries(LineSeries, { color: '#2196F3', lineWidth: 2 });
+  macdChart = createChart(matchContainer.value, { width: matchContainer.value.clientWidth, height: 120, layout: { background: { color: '#ffffff' }, textColor: '#333333' }, grid: commonGrid, crosshair: commonCrosshair, rightPriceScale: commonRightPriceScale, timeScale: { ...commonTimeScale, visible: false } });
+  difSeries = macdChart.addSeries(LineSeries, { color: '#2196F3', lineWidth: 2 });
   const deaSeries = macdChart.addSeries(LineSeries, { color: '#FF9800', lineWidth: 2 });
   const histSeries = macdChart.addSeries(HistogramSeries, { base: 0 });
 
   // 3. 建立 RSI
-  rsiChart = createChart(rsiContainer.value, { width: rsiContainer.value.clientWidth, height: 120, layout: { background: { color: '#ffffff' }, textColor: '#333333' }, grid: commonGrid, timeScale: { borderColor: '#cccccc', timeVisible: true } });
-  const rsiSeries = rsiChart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 2 });
+  rsiChart = createChart(rsiContainer.value, { width: rsiContainer.value.clientWidth, height: 120, layout: { background: { color: '#ffffff' }, textColor: '#333333' }, grid: commonGrid, crosshair: commonCrosshair, rightPriceScale: commonRightPriceScale, timeScale: { ...commonTimeScale, visible: true } });
+  rsiSeries = rsiChart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 2 });
   const rsi30Series = rsiChart.addSeries(LineSeries, { color: '#b0bec5', lineWidth: 1, lineStyle: 3 });
   const rsi70Series = rsiChart.addSeries(LineSeries, { color: '#b0bec5', lineWidth: 1, lineStyle: 3 });
 
   // 4. 同步縮放
   let isSyncing = false;
-  const syncRange = (range: any, targetCharts: (IChartApi | null)[]) => {
+  const syncRange = (range: LogicalRange | null, targetCharts: (IChartApi | null)[]) => {
     if (isSyncing || !range) return;
     isSyncing = true;
     targetCharts.forEach(chart => { if (chart) chart.timeScale().setVisibleLogicalRange(range); });
@@ -169,10 +238,56 @@ onMounted(async () => {
   mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => syncRange(range, [macdChart, rsiChart]));
   macdChart.timeScale().subscribeVisibleLogicalRangeChange((range) => syncRange(range, [mainChart, rsiChart]));
   rsiChart.timeScale().subscribeVisibleLogicalRangeChange((range) => syncRange(range, [mainChart, macdChart]));
+
+  let isCrosshairSyncing = false;
+  const syncCrosshair = (sourceChart: IChartApi, param: MouseEventParams<Time>) => {
+    if (isCrosshairSyncing || !isChartDataReady) return;
+    isCrosshairSyncing = true;
+
+    try {
+      const values = param.time === undefined || !param.point ? undefined : crosshairValues.get(param.time);
+      if (!values || param.time === undefined) {
+        if (sourceChart !== mainChart) mainChart?.clearCrosshairPosition();
+        if (sourceChart !== macdChart) macdChart?.clearCrosshairPosition();
+        if (sourceChart !== rsiChart) rsiChart?.clearCrosshairPosition();
+        updateIndicatorLegends(latestValues);
+        return;
+      }
+
+      updateIndicatorLegends(values);
+      if (sourceChart !== mainChart && mainChart && candlestickSeries) {
+        mainChart.setCrosshairPosition(values.close, param.time, candlestickSeries);
+      }
+      if (sourceChart !== macdChart && macdChart && difSeries) {
+        macdChart.setCrosshairPosition(values.dif, param.time, difSeries);
+      }
+      if (sourceChart !== rsiChart && rsiChart && rsiSeries) {
+        rsiChart.setCrosshairPosition(values.rsi, param.time, rsiSeries);
+      }
+    } finally {
+      isCrosshairSyncing = false;
+    }
+  };
+
+  const handleMainCrosshair = (param: MouseEventParams<Time>) => syncCrosshair(mainChart!, param);
+  const handleMacdCrosshair = (param: MouseEventParams<Time>) => syncCrosshair(macdChart!, param);
+  const handleRsiCrosshair = (param: MouseEventParams<Time>) => syncCrosshair(rsiChart!, param);
+  mainChart.subscribeCrosshairMove(handleMainCrosshair);
+  macdChart.subscribeCrosshairMove(handleMacdCrosshair);
+  rsiChart.subscribeCrosshairMove(handleRsiCrosshair);
+
+  cleanupChartInteractions = () => {
+    mainChart?.unsubscribeCrosshairMove(handleMainCrosshair);
+    macdChart?.unsubscribeCrosshairMove(handleMacdCrosshair);
+    rsiChart?.unsubscribeCrosshairMove(handleRsiCrosshair);
+  };
+
+  updateVisibleTimeScale();
   window.addEventListener('resize', resizeDashboard);
 
   // 5. 抓取資料並繪圖
   loadKlines = async (exchangeSymbolId: number) => {
+    isChartDataReady = false;
     try {
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
       const response = await fetch(`${API_BASE_URL}/api/v1/klines?exchange_symbol_id=${encodeURIComponent(exchangeSymbolId)}`);
@@ -180,7 +295,20 @@ onMounted(async () => {
       const rawData: ApiResponse[] = await response.json();
       const times = rawData.map(item => item.time as Time);
 
-      candlestickSeries.setData(rawData.map(item => ({ time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close })));
+      crosshairValues.clear();
+      rawData.forEach(item => {
+        crosshairValues.set(item.time as Time, {
+          close: item.close,
+          dif: item.dif,
+          dea: item.dea,
+          hist: item.hist,
+          rsi: item.rsi,
+        });
+      });
+      latestValues = rawData.length > 0 ? crosshairValues.get(times[times.length - 1]) ?? null : null;
+      updateIndicatorLegends(latestValues);
+
+      candlestickSeries!.setData(rawData.map(item => ({ time: item.time as Time, open: item.open, high: item.high, low: item.low, close: item.close })));
 
       ma7Series!.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma7 })));
       ma25Series!.setData(rawData.map((item, i) => ({ time: times[i], value: item.ma25 })));
@@ -188,11 +316,11 @@ onMounted(async () => {
       bbMiddleSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiMiddle })));
       bbLowerSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.bbiLower })));
 
-      difSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dif })));
+      difSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.dif })));
       deaSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.dea })));
       histSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.hist, color: item.hist >= 0 ? '#26a69a' : '#ef5350' })));
 
-      rsiSeries.setData(rawData.map((item, i) => ({ time: times[i], value: item.rsi })));
+      rsiSeries!.setData(rawData.map((item, i) => ({ time: times[i], value: item.rsi })));
       rsi30Series.setData(rawData.map((_, i) => ({ time: times[i], value: 30 })));
       rsi70Series.setData(rawData.map((_, i) => ({ time: times[i], value: 70 })));
 
@@ -202,10 +330,28 @@ onMounted(async () => {
         if (macdChart) macdChart.timeScale().setVisibleLogicalRange(logicalRange);
         if (rsiChart) rsiChart.timeScale().setVisibleLogicalRange(logicalRange);
       }
+      isChartDataReady = true;
     } catch (error) {
-    console.error('抓取失敗:', error);
+      console.error('抓取失敗:', error);
     }
   };
+});
+
+onBeforeUnmount(() => {
+  cleanupChartInteractions();
+  window.removeEventListener('resize', resizeDashboard);
+  mainChart?.remove();
+  macdChart?.remove();
+  rsiChart?.remove();
+  mainChart = null;
+  macdChart = null;
+  rsiChart = null;
+  candlestickSeries = null;
+  difSeries = null;
+  rsiSeries = null;
+  loadKlines = null;
+  isChartDataReady = false;
+  crosshairValues.clear();
 });
 </script>
 
@@ -286,17 +432,21 @@ onMounted(async () => {
   border-color: #2962ff;
 }
 
+.chart-workspace {
+  width: 100%;
+  overflow: hidden;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
 .chart-box {
   position: relative;
-  /* 👈 這行是關鍵，讓內部圖例有定位基準 */
   width: 100%;
   height: 400px;
   background-color: white;
-  border-top-left-radius: 10px;
-  border-top-right-radius: 10px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
   overflow: hidden;
-  border-bottom: 1px solid #f0f0f0;
 }
 
 /* 新增圖例的樣式 */
@@ -305,13 +455,11 @@ onMounted(async () => {
   top: 12px;
   left: 15px;
   z-index: 10;
-  /* 確保它浮在畫布的最上層 */
   display: flex;
   gap: 12px;
   font-size: 13px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 
-  /* 這個屬性超重要：讓滑鼠游標「穿透」文字，才不會擋住圖表的拖曳跟十字線！ */
   pointer-events: none;
 }
 
@@ -341,20 +489,53 @@ onMounted(async () => {
 
 /* 以布林中軌的黃色做代表 */
 
-.macd-box,
-.rsi-box {
+.indicator-box {
+  position: relative;
   width: 100%;
   height: 120px;
   background-color: white;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
   overflow: hidden;
-  border-bottom: 1px solid #f0f0f0;
+  border-top: 1px solid #e2e8f0;
 }
 
-.rsi-box {
-  border-bottom-left-radius: 10px;
-  border-bottom-right-radius: 10px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+.indicator-legend {
+  position: absolute;
+  top: 8px;
+  left: 15px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 90px);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.indicator-name {
+  color: #131722;
+  font-weight: 700;
+}
+
+.macd-dif {
+  color: #2196f3;
+}
+
+.macd-dea {
+  color: #ff9800;
+}
+
+.hist-positive {
+  color: #0f9f91;
+}
+
+.hist-negative {
+  color: #ef5350;
+}
+
+.rsi-value {
+  color: #e91e63;
 }
 
 @media (max-width: 1100px) {
@@ -382,6 +563,15 @@ onMounted(async () => {
 
   .toggle-btn {
     flex: 1 1 calc(50% - 4px);
+  }
+
+  .indicator-legend {
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .indicator-name {
+    display: none;
   }
 }
 </style>
