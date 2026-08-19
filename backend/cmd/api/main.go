@@ -7,7 +7,9 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -61,6 +63,41 @@ type DailyReport struct {
 	PublishedAt   time.Time `json:"published_at"`
 }
 
+const defaultAllowedOrigins = "http://localhost:5173,https://gofin-tracker-flame.vercel.app"
+
+func corsMiddleware(rawOrigins string) gin.HandlerFunc {
+	if strings.TrimSpace(rawOrigins) == "" {
+		rawOrigins = defaultAllowedOrigins
+	}
+
+	allowedOrigins := make(map[string]struct{})
+	for _, origin := range strings.Split(rawOrigins, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			allowedOrigins[origin] = struct{}{}
+		}
+	}
+
+	return func(c *gin.Context) {
+		c.Header("Vary", "Origin")
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			if _, allowed := allowedOrigins[origin]; !allowed {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
+
+		c.Header("Access-Control-Allow-Headers", "Content-Type, X-Daily-Report-Token")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -80,12 +117,7 @@ func main() {
 
 	r := gin.Default()
 
-	// CORS 跨域處理
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		c.Next()
-	})
+	r.Use(corsMiddleware(os.Getenv("CORS_ALLOWED_ORIGINS")))
 
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -201,11 +233,12 @@ func main() {
 				c.JSON(http.StatusNotFound, gin.H{"error": "exchange_symbol_not_found"})
 				return
 			}
-			// EMA/RSI 需要熱身期，這次撈 200 根算完再切 100 根給前端
+			// 多抓 30 根作為 EMA/RSI 熱身期，計算後只回傳最新 100 根。
 			query := `SELECT time, open_price, high_price, low_price, close_price 
 					  FROM klines 
 					  WHERE exchange_symbol_id = $1 AND interval = '1d'
-					  ORDER BY time ASC;`
+					  ORDER BY time DESC
+					  LIMIT 130;`
 
 			rows, err := db.Query(query, exchangeSymbolID)
 			if err != nil {
@@ -234,6 +267,10 @@ func main() {
 				return
 			}
 
+			// SQL 以最新資料優先限制筆數；指標計算前恢復為時間正序。
+			slices.Reverse(klines)
+			slices.Reverse(closePrices)
+
 			// 記憶體一擊流：一次算好所有技術指標
 			dif, dea, hist := calculateMACD(closePrices)
 			ma7 := calculateSMA(closePrices, 7)
@@ -254,11 +291,9 @@ func main() {
 				klines[i].Rsi = rsi[i]
 			}
 
-			// 切出最後 100 根最精準、熱身好的資料給前端
+			// 移除最多 30 根熱身資料，API 最多回傳 100 根。
 			if len(klines) > 30 {
 				klines = klines[30:]
-			} else {
-				// 如果資料不足 100 根，則返回所有可用資料
 			}
 
 			c.JSON(http.StatusOK, klines)

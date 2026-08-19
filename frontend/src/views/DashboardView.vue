@@ -335,6 +335,18 @@ onMounted(async () => {
       console.error('抓取失敗:', error);
     }
   };
+
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+    const response = await fetch(`${API_BASE_URL}/api/v1/symbols`);
+    if (!response.ok) throw new Error('API 失敗');
+    const symbols: SymbolItem[] = await response.json();
+    if (symbols.length > 0) {
+      await handleSymbolChange(symbols[0]);
+    }
+  } catch (error) {
+    console.error('載入預設商品失敗:', error);
+  }
 });
 
 onBeforeUnmount(() => {
