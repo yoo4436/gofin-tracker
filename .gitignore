@@ -61,3 +61,6 @@ pnpm-debug.log*
 # 前端暫存檔
 .eslintcache
 .stylelintcache
+
+# Third-party skill README illustrations (not required by the skill)
+/.agents/skills/speak-human-tw/assets/readme/
