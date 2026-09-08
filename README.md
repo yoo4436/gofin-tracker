@@ -47,7 +47,7 @@ flowchart LR
 
 ## 技術組成
 
-| 使用技術 |
+| 類別 | 使用技術 |
 | --- | --- |
 | 後端 | Go、Gin、lib/pq |
 | 前端 | Vue 3、TypeScript、Vite、Vue Router |
