@@ -1,18 +1,15 @@
 <template>
   <div class="app-layout">
     <header class="navbar">
-      <div class="brand" @click="$router.push('/')">
-        <span class="logo-icon">📈</span>
-        <span class="brand-title">GoFin-Tracker 指數追蹤系統</span>
-      </div>
+      <router-link class="brand" to="/" aria-label="回到市場總覽">
+        <span class="logo-icon" aria-hidden="true">GF</span>
+        <span class="brand-title">GoFin Tracker</span>
+      </router-link>
 
-      <nav class="nav-links">
-        <router-link to="/" class="nav-item">
-          <span class="icon">📊</span> 即時看盤
-        </router-link>
-        <router-link to="/reports" class="nav-item">
-          <span class="icon">📰</span> 投資日報
-        </router-link>
+      <nav class="nav-links" aria-label="主要功能">
+        <router-link to="/" class="nav-item">市場總覽</router-link>
+        <router-link to="/reports" class="nav-item">每日報告</router-link>
+        <router-link to="/news" class="nav-item">新聞</router-link>
       </nav>
     </header>
 
@@ -21,10 +18,6 @@
     </main>
   </div>
 </template>
-
-<script setup ts>
-// 通用外殼，保持簡潔
-</script>
 
 <style scoped>
 .app-layout {
@@ -36,16 +29,16 @@
   flex-direction: column;
 }
 
-/* 上方導覽列滿版 */
 .navbar {
-  min-height: 60px;
-  background-color: rgba(30, 34, 45, 0.96);
+  min-height: 64px;
+  background-color: rgba(24, 28, 39, 0.96);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid #2a2e39;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
+  justify-content: flex-start;
+  gap: clamp(18px, 3vw, 42px);
+  padding: 0 clamp(14px, 3vw, 32px);
   position: sticky;
   top: 0;
   z-index: 1000;
@@ -55,71 +48,88 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  cursor: pointer;
+  flex: 0 0 auto;
+  color: #ffffff;
+  text-decoration: none;
 }
 
 .logo-icon {
-  font-size: 1.4rem;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #2962ff, #7547ff);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  box-shadow: 0 7px 18px rgba(41, 98, 255, 0.28);
 }
 
 .brand-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
 }
 
 .nav-links {
-  display: flex;
-  gap: 8px;
-}
-
-.nav-item {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  color: #787b86;
+  align-self: stretch;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nav-links::-webkit-scrollbar { display: none; }
+
+.nav-item {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border-bottom: 2px solid transparent;
+  color: #9297a6;
   text-decoration: none;
-  font-size: 0.95rem;
-  transition: all 0.2s ease;
+  font-size: 0.92rem;
+  font-weight: 650;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
 }
 
 .nav-item:hover {
-  color: #e0e3eb;
-  background-color: #2a2e39;
+  color: #e7e9ef;
+  background-color: rgba(255, 255, 255, 0.035);
 }
 
 .nav-item.router-link-exact-active {
   color: #ffffff;
-  background-color: #2962ff;
-  font-weight: 600;
-  box-shadow: 0 6px 16px rgba(41, 98, 255, 0.24);
+  border-bottom-color: #5f85ff;
+  background-color: rgba(41, 98, 255, 0.09);
 }
 
-/* 主內容區域：移除過度邊距，提供寬敞閱讀與看盤視角 */
 .main-content {
   flex: 1;
   width: 100%;
   padding: 16px;
-  box-sizing: border-box;
 }
 
 @media (max-width: 640px) {
   .navbar {
-    padding: 10px 14px;
+    min-height: 58px;
+    gap: 10px;
+    padding: 0 10px;
   }
 
-  .brand-title {
-    display: none;
-  }
+  .brand-title { display: none; }
 
   .nav-item {
-    padding: 8px 10px;
+    padding: 0 11px;
+    font-size: 0.86rem;
   }
 
-  .main-content {
-    padding: 10px;
-  }
+  .main-content { padding: 10px; }
 }
 </style>

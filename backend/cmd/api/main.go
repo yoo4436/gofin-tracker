@@ -18,6 +18,7 @@ import (
 
 	"index-system-backend/backend/internal/dailyreport"
 	"index-system-backend/backend/internal/gemini"
+	"index-system-backend/backend/internal/newsfeed"
 	"index-system-backend/backend/internal/newssearch"
 )
 
@@ -145,6 +146,12 @@ func main() {
 
 	v1 := r.Group("/api/v1")
 	{
+		newsProvider := newsfeed.NewCachedProvider(
+			newsfeed.NewCNYESClient(newsfeed.Config{BaseURL: os.Getenv("CNYES_API_BASE_URL")}),
+			5*time.Minute,
+		)
+		v1.GET("/news", newsfeed.NewHandler(newsProvider))
+
 		v1.POST("/admin/daily-reports/generate", dailyreport.NewGenerateHandler(dailyReportService, os.Getenv("DAILY_REPORT_API_TOKEN")))
 		v1.POST("/admin/daily-reports/:id/publish", dailyreport.NewPublishHandler(dailyReportRepository, os.Getenv("DAILY_REPORT_API_TOKEN")))
 
