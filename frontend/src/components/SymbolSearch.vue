@@ -149,7 +149,7 @@ onUnmounted(() => {
 /* 下拉選單設計 */
 .dropdown-menu {
   position: absolute;
-  top: 110%;
+  top: calc(100% + 8px);
   left: 0;
   width: 100%;
   background-color: #ffffff;
@@ -200,6 +200,7 @@ onUnmounted(() => {
 @media (max-width: 1100px) {
   .search-container {
     width: 100%;
+    flex: 0 0 auto;
   }
 }
 </style>
